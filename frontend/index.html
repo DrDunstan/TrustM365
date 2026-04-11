@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <title>TrustM365 – Baseline Drift Monitor</title>
+    <meta name="description" content="TrustM365 — Monitor your Microsoft 365 tenant configuration against a gold-standard baseline. Detect and restore drift instantly." />
+    <meta name="author" content="Anto Porter · securingm365.com" />
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
+    <link rel="icon" href="/favicon.ico" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+
+    <!-- Theme colour — updated dynamically by the theme toggle -->
+    <meta id="theme-color-meta" name="theme-color" content="#0f1117" />
+
+    <!--
+      Apply saved theme before React mounts to prevent flash of wrong theme.
+      Reads localStorage and sets data-theme on <html> synchronously.
+    -->
+    <script>
+      (function () {
+        try {
+          var saved = localStorage.getItem('trustm365_theme')
+          if (saved === 'light') {
+            document.documentElement.setAttribute('data-theme', 'light')
+            document.getElementById('theme-color-meta').setAttribute('content', '#f8fafc')
+          }
+        } catch (e) {}
+      })()
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

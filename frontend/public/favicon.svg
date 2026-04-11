@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" fill="none">
+  <defs>
+    <!-- Dark background for favicon context -->
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1a1f2e"/>
+      <stop offset="100%" stop-color="#0f1117"/>
+    </linearGradient>
+
+    <linearGradient id="shieldStroke" x1="100" y1="10" x2="100" y2="185" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#818cf8"/>
+      <stop offset="100%" stop-color="#6d28d9"/>
+    </linearGradient>
+
+    <linearGradient id="shieldFill" x1="100" y1="10" x2="100" y2="185" gradientUnits="userSpaceOnUse">
+      <stop offset="0%"   stop-color="#312e81" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#1e1b4b" stop-opacity="0.25"/>
+    </linearGradient>
+
+    <linearGradient id="lineGrad" x1="30" y1="0" x2="170" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0%"   stop-color="#34d399"/>
+      <stop offset="44%"  stop-color="#34d399"/>
+      <stop offset="56%"  stop-color="#f87171"/>
+      <stop offset="72%"  stop-color="#f87171"/>
+      <stop offset="86%"  stop-color="#34d399"/>
+      <stop offset="100%" stop-color="#34d399"/>
+    </linearGradient>
+
+    <filter id="lineGlow" x="-20%" y="-80%" width="140%" height="260%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+
+    <filter id="redGlow" x="-120%" y="-120%" width="340%" height="340%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="4" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+
+    <filter id="shieldGlow" x="-8%" y="-8%" width="116%" height="116%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- Rounded square background -->
+  <rect width="200" height="200" rx="38" fill="url(#bg)"/>
+
+  <!-- Shield -->
+  <path
+    d="M100 18 L174 47 C174 47 174 112 174 120 C174 153 139 174 100 186 C61 174 26 153 26 120 C26 112 26 47 26 47 Z"
+    fill="url(#shieldFill)"
+    stroke="url(#shieldStroke)"
+    stroke-width="5"
+    stroke-linejoin="round"
+    filter="url(#shieldGlow)"
+  />
+
+  <!-- Baseline dashed reference line -->
+  <line x1="38" y1="114" x2="162" y2="114"
+    stroke="#34d399" stroke-width="1.5"
+    stroke-dasharray="5 4"
+    opacity="0.25"/>
+
+  <!-- Signal line: flat → spike → recovery -->
+  <polyline
+    points="38,114 72,114 88,80 104,114 162,114"
+    stroke="url(#lineGrad)"
+    stroke-width="4"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    filter="url(#lineGlow)"
+  />
+
+  <!-- Entry dot — clean -->
+  <circle cx="38" cy="114" r="5" fill="#34d399" opacity="0.9"/>
+
+  <!-- Drift peak — red glow -->
+  <circle cx="88" cy="80" r="6.5" fill="#f87171" filter="url(#redGlow)"/>
+
+  <!-- Exit dot — resolved -->
+  <circle cx="162" cy="114" r="5.5" fill="#34d399"/>
+</svg>

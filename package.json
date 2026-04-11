@@ -1,0 +1,19 @@
+{
+  "name": "trustm365",
+  "version": "1.0.0",
+  "description": "TrustM365 - M365 Baseline Drift Monitor",
+  "scripts": {
+    "start": "node backend/src/index.js",
+    "build": "cd frontend && npm ci && npm run build",
+    "dev": "npx concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:frontend": "cd frontend && npm run dev",
+    "install:all": "npm install && cd backend && npm install && cd ../frontend && npm install",
+    "db:init": "node -e \"require('./backend/src/database/init.js')\"",
+    "db:backup": "node scripts/backup.js",
+    "generate:key": "node scripts/generateKey.js"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

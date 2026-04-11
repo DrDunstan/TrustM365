@@ -1,0 +1,228 @@
+const { v4: uuidv4 } = require('uuid');
+const { getDb } = require('../database/init');
+const { getAccessToken } = require('../services/auth');
+const { decrypt } = require('../utils/encryption');
+const { getCollector, LicenceUnavailableError } = require('../collectors');
+const { computeDrift } = require('./drift');
+const { checkGrantedPermissions, buildAreaPermissionMap } = require('../services/permissions');
+const { COLLECTORS } = require('../collectors');
+const { fireWebhooksForDrift, clearWebhookFiredForArea } = require('./webhooks');
+
+const logger = require('../utils/logger');
+const { nowInTimezone } = require('../utils/time');
+
+const jobs = new Map();
+
+function getJob(jobId) { return jobs.get(jobId) || null; }
+
+function createSyncJob(tenantDbId, areaKey) {
+  const jobId = uuidv4();
+  jobs.set(jobId, { id: jobId, tenantDbId, areaKey, status: 'pending', result: null, error: null });
+  return jobId;
+}
+
+async function runSync(jobId) {
+  const job = jobs.get(jobId);
+  if (!job) return;
+  job.status = 'running';
+
+  const db = getDb();
+  const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(job.tenantDbId);
+  if (!tenant) { job.status = 'failed'; job.error = 'Tenant not found'; return; }
+
+  try {
+    const collector = getCollector(job.areaKey);
+    const clientSecret = decrypt(tenant.client_secret_encrypted);
+    const token = await getAccessToken(tenant.tenant_id, tenant.client_id, clientSecret);
+
+    // ── Re-check permissions on every sync ────────────────────────────────────
+
+    // Timezone logic removed — always use UTC timestamps
+
+    try {
+      const { granted } = await checkGrantedPermissions(token, tenant.client_id, tenant.tenant_id);
+      const areas = buildAreaPermissionMap(granted, COLLECTORS);
+      db.prepare("UPDATE tenants SET permissions_json = ?, permissions_checked_at = ? WHERE id = ?")
+        .run(JSON.stringify({ granted, areas }), new Date().toISOString(), tenant.id);
+      job.updatedPermissions = { granted, areas };
+    } catch (permErr) {
+      logger.warn({ permErr, tenantId: tenant.tenant_id }, 'Permission re-check failed during sync — using cached');
+    }
+
+    const liveResources = await collector.pull(token);
+
+    const snapshotId = uuidv4();
+    db.prepare('INSERT INTO live_snapshots (id, tenant_id, area_key, resources, pulled_at) VALUES (?,?,?,?,?)')
+      .run(snapshotId, tenant.id, job.areaKey, JSON.stringify(liveResources), new Date().toISOString());
+    db.prepare("UPDATE tenants SET last_synced_at = ? WHERE id = ?").run(new Date().toISOString(), tenant.id);
+    db.prepare("UPDATE resource_areas SET last_pulled_at = ? WHERE tenant_id = ? AND area_key = ?")
+      .run(new Date().toISOString(), tenant.id, job.areaKey);
+
+    const baseline = db.prepare('SELECT * FROM baselines WHERE tenant_id = ? AND area_key = ?')
+      .get(tenant.id, job.areaKey);
+
+    let driftResult = null;
+    if (baseline) {
+      const baselineResources = JSON.parse(baseline.resources);
+      const watchedKeys = JSON.parse(baseline.watched_keys || '[]');
+      const resourceModes = JSON.parse(baseline.resource_modes || '{}');
+      const resourceHashes = JSON.parse(baseline.resource_hashes || '{}');
+      const drift = computeDrift(liveResources, baselineResources, watchedKeys, resourceModes, resourceHashes);
+      const driftId = uuidv4();
+      db.prepare('INSERT INTO drift_results (id,tenant_id,area_key,status,drift_count,summary,live_snapshot_id) VALUES (?,?,?,?,?,?,?)')
+        .run(driftId, tenant.id, job.areaKey, drift.status, drift.driftCount, JSON.stringify(drift.summary), snapshotId);
+      driftResult = drift;
+      logger.info({ tenantId: tenant.tenant_id, areaKey: job.areaKey, status: drift.status, driftCount: drift.driftCount }, 'Drift check complete');
+
+      // ── Fire webhooks for genuine drift ───────────────────────────────────
+      if (drift.status === 'drifted' && drift.driftCount > 0) {
+        const driftRow = { ...drift, drift_count: drift.driftCount, summary: JSON.stringify(drift.summary) };
+        fireWebhooksForDrift(tenant.id, job.areaKey, driftRow).catch(e =>
+          logger.warn({ e }, 'Webhook fire failed (non-fatal)')
+        );
+      } else if (drift.status === 'clean') {
+        // Area resolved — allow webhooks to fire again on next detection
+        clearWebhookFiredForArea(tenant.id, job.areaKey);
+      }
+
+      // ── Auto-restore — triggered after drift when the area has it enabled ──
+      const area = db.prepare('SELECT auto_restore FROM resource_areas WHERE tenant_id = ? AND area_key = ?')
+        .get(tenant.id, job.areaKey);
+      if (area?.auto_restore === 1 && drift.driftCount > 0) {
+        const { restoreResource } = require('./restore');
+        const driftedItems = drift.summary
+          .filter(s => s.status === 'drifted' || s.status === 'missing');
+        const autoRestoreResult = { attempted: driftedItems.length, succeeded: 0, failed: 0, resources: [] };
+
+        for (const item of driftedItems) {
+          try {
+            await restoreResource(tenant.id, job.areaKey, item.resourceId, null, 'auto');
+            autoRestoreResult.succeeded++;
+            autoRestoreResult.resources.push({ name: item.resourceName, status: 'restored' });
+            logger.info({ tenantId: tenant.tenant_id, areaKey: job.areaKey, resourceId: item.resourceId }, 'Auto-restored resource');
+          } catch (restoreErr) {
+            autoRestoreResult.failed++;
+            autoRestoreResult.resources.push({ name: item.resourceName, status: 'failed', error: restoreErr.message });
+            logger.warn({ restoreErr, resourceId: item.resourceId }, 'Auto-restore failed for resource');
+          }
+        }
+
+        driftResult.autoRestoreResult = autoRestoreResult;
+        logger.info({ areaKey: job.areaKey, ...autoRestoreResult }, 'Auto-restore complete');
+
+        // Re-pull live data and recompute drift so the DB reflects the post-restore state.
+        // This ensures the dashboard shows Clean immediately — not Drifted with 0 count.
+        if (autoRestoreResult.succeeded > 0) {
+          try {
+            const freshResources = await collector.pull(token);
+            const freshSnapshotId = uuidv4();
+            db.prepare('INSERT INTO live_snapshots (id, tenant_id, area_key, resources, pulled_at) VALUES (?,?,?,?,?)')
+              .run(freshSnapshotId, tenant.id, job.areaKey, JSON.stringify(freshResources), new Date().toISOString());
+
+            const freshDrift = computeDrift(freshResources, baselineResources, watchedKeys, resourceModes, resourceHashes);
+            const freshDriftId = uuidv4();
+            db.prepare('INSERT INTO drift_results (id,tenant_id,area_key,status,drift_count,summary,live_snapshot_id) VALUES (?,?,?,?,?,?,?)')
+              .run(freshDriftId, tenant.id, job.areaKey, freshDrift.status, freshDrift.driftCount, JSON.stringify(freshDrift.summary), freshSnapshotId);
+
+            // Update job result to reflect post-restore state
+            job.result.liveResources = freshResources;
+            driftResult = { ...freshDrift, autoRestoreResult };
+            logger.info({ areaKey: job.areaKey, status: freshDrift.status }, 'Post-restore drift check complete');
+          } catch (rePullErr) {
+            logger.warn({ rePullErr }, 'Post-restore re-pull failed — UI will show stale drift until next sync');
+          }
+        }
+      }
+    }
+
+    job.status = 'complete';
+    job.result = { snapshotId, liveResources, driftResult };
+    // Clear any previous sync error on success
+      db.prepare("UPDATE tenants SET last_sync_error = NULL, last_sync_error_at = NULL WHERE id = ?")
+        .run(tenant.id);
+
+  } catch (err) {
+    if (err instanceof LicenceUnavailableError || err.code === 'LICENCE_UNAVAILABLE') {
+      db.prepare("UPDATE resource_areas SET last_pulled_at = ? WHERE tenant_id = ? AND area_key = ?")
+        .run(new Date().toISOString(), tenant.id, job.areaKey);
+      job.status = 'unavailable';
+      job.error = err.message;
+      logger.info({ areaKey: job.areaKey, tenantId: tenant.tenant_id }, 'Area unavailable on this licence tier');
+    } else {
+      // Classify the error type for the UI banner.
+      // Only persist errors that indicate the ENTIRE tenant connection is broken
+      // (auth failure). Per-area permission errors (403) are expected for areas the
+      // App Registration isn't scoped for — those show as "Locked" on the area card,
+      // not as a tenant-wide banner. Network errors are transient and self-resolve.
+      let errorType = 'unknown';
+      const msg     = err.message || '';
+      const status  = err.statusCode || err.status || 0;
+
+      if (status === 401 || msg.includes('401') || msg.toLowerCase().includes('authentication failed') || msg.toLowerCase().includes('invalid_client') || msg.toLowerCase().includes('client secret')) {
+        errorType = 'auth'; // Expired/revoked secret or client_id mismatch — tenant-wide
+      } else if (msg.includes('timed out') || msg.includes('ECONNREFUSED') || msg.includes('ENOTFOUND') || msg.includes('ETIMEDOUT')) {
+        errorType = 'network'; // Transient — don't persist as a banner
+      } else if (status === 403 || msg.includes('403')) {
+        // 403 on an individual area = missing scope for that area, not a tenant auth problem.
+        // Show as Locked on the area card — do NOT set a tenant-wide banner.
+        errorType = 'permission_area'; // internal — will NOT be persisted
+      }
+
+      // Only persist auth errors as tenant-wide banners — everything else is per-area
+      if (errorType === 'auth') {
+        try {
+          db.prepare("UPDATE tenants SET last_sync_error = ?, last_sync_error_at = ? WHERE id = ?")
+            .run(JSON.stringify({ type: 'auth', message: msg }), new Date().toISOString(), tenant.id);
+        } catch {}
+      }
+
+      job.status = 'failed';
+      job.error = err.message;
+      logger.error({ err, areaKey: job.areaKey, errorType }, 'Sync job failed');
+    }
+  }
+}
+
+/**
+ * runAllDriftChecks — called by the global cron in index.js.
+ *
+ * Respects per-tenant drift interval settings:
+ *   - drift_check_auto = 0  → skip this tenant entirely (auto-check disabled)
+ *   - drift_interval_minutes > 0 → only run if last_synced_at is older than the interval
+ *   - falls back to the global DRIFT_CHECK_INTERVAL_MINUTES if per-tenant is not set
+ */
+async function runAllDriftChecks() {
+  const db = getDb();
+  // Get all tenants that have at least one baselined area
+  const tenants = db.prepare(`
+    SELECT DISTINCT t.*
+    FROM tenants t
+    INNER JOIN resource_areas ra ON ra.tenant_id = t.id
+    INNER JOIN baselines b ON b.tenant_id = t.id AND b.area_key = ra.area_key
+  `).all();
+
+  for (const tenant of tenants) {
+    // Only use per-tenant settings for drift check automation
+    const enabled = tenant.drift_check_auto === 1;
+    const interval = tenant.drift_interval_minutes || 0;
+    if (!enabled || interval <= 0) continue;
+
+    // Check if enough time has passed since last sync
+    if (tenant.last_synced_at) {
+      const lastSync = new Date(tenant.last_synced_at);
+      const minutesSince = (Date.now() - lastSync.getTime()) / 60000;
+      if (minutesSince < interval) {
+        logger.debug({ tenantId: tenant.tenant_id, minutesSince, interval }, 'Skipping — synced recently');
+        continue;
+      }
+    }
+
+    const areas = db.prepare('SELECT * FROM resource_areas WHERE tenant_id = ? AND has_baseline = 1').all(tenant.id);
+    for (const area of areas) {
+      const jobId = createSyncJob(area.tenant_id, area.area_key);
+      await runSync(jobId);
+    }
+  }
+}
+
+module.exports = { createSyncJob, runSync, getJob, runAllDriftChecks };

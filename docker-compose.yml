@@ -1,0 +1,57 @@
+version: '3.9'
+
+services:
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: trustm365-backend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_PATH: /data/trustm365.db
+      PORT: "3001"
+      NODE_ENV: production
+      # Timezone for scheduled report generation (08:00 daily trigger).
+      # Override by setting TZ in your .env file or as an environment variable here.
+      # Examples: Australia/Perth, Australia/Sydney, America/New_York, Europe/London, UTC
+      TZ: ${TZ:-UTC}
+    volumes:
+      - trustm365-data:/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3001/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  frontend:
+    image: nginx:alpine
+    container_name: trustm365-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      # Uncomment for HTTPS (place certs in ./certs/ first):
+      # - "443:443"
+    volumes:
+      - ./frontend/dist:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      # Uncomment for HTTPS:
+      # - ./certs:/etc/nginx/certs:ro
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - internal
+
+volumes:
+  trustm365-data:
+    driver: local
+
+networks:
+  internal:
+    driver: bridge

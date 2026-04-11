@@ -1,0 +1,232 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Theme tokens ────────────────────────────────────────────────────────────
+   All component classes use Tailwind gray/brand classes backed by CSS variables.
+   Flipping data-theme on <html> switches every surface simultaneously.
+   ────────────────────────────────────────────────────────────────────────── */
+
+/* ── Dark mode (default) ──────────────────────────────────────────────────── */
+:root,
+[data-theme="dark"] {
+  --gray-950: #0f1117;
+  --gray-900: #111827;
+  --gray-800: #1f2937;
+  --gray-700: #374151;
+  --gray-600: #4b5563;
+  --gray-500: #6b7280;
+  --gray-400: #9ca3af;
+  --gray-300: #d1d5db;
+  --gray-200: #e5e7eb;
+  --gray-100: #f3f4f6;
+
+  --brand-950: #1e1b4b;
+  --brand-900: #312e81;
+  --brand-800: #3730a3;
+  --brand-700: #4338ca;
+  --brand-600: #4f46e5;
+  --brand-500: #6366f1;
+  --brand-400: #818cf8;
+  --brand-300: #a5b4fc;
+  --brand-200: #c7d2fe;
+
+  --page-bg:        #0f1117;
+  --body-text:      #f3f4f6;
+  --card-bg:        #111827;
+  --card-border:    #1f2937;
+  --card-bg-sm:     #111827;
+  --input-bg:       #1f2937;
+  --input-border:   #374151;
+  --input-text:     #f3f4f6;
+  --btn-sec-bg:     #1f2937;
+  --btn-sec-hover:  #374151;
+  --btn-sec-text:   #e5e7eb;
+  --sidebar-bg:     #030712;
+  --sidebar-border: #1f2937;
+  --donut-track:    #1f2937;
+  --scrollbar-track: #0a0a0f;
+  --scrollbar-thumb: #374151;
+}
+
+/* ── Light mode ────────────────────────────────────────────────────────────── */
+[data-theme="light"] {
+  /* Gray scale — semantic roles inverted */
+  --gray-950: #f1f5f9;   /* page bg */
+  --gray-900: #ffffff;   /* card bg — true white for clear contrast */
+  --gray-800: #e2e8f0;   /* borders, input bg */
+  --gray-700: #cbd5e1;   /* subtle dividers */
+  --gray-600: #64748b;   /* muted text — boosted from #94a3b8 for WCAG AA */
+  --gray-500: #475569;   /* secondary text */
+  --gray-400: #334155;   /* body / primary text */
+  --gray-300: #1e293b;   /* strong text */
+  --gray-200: #0f172a;   /* near-black headings */
+  --gray-100: #020617;   /* maximum contrast */
+
+  /* Brand — deeper for light bg */
+  --brand-950: #eef2ff;
+  --brand-900: #e0e7ff;
+  --brand-800: #c7d2fe;
+  --brand-700: #818cf8;
+  --brand-600: #6366f1;
+  --brand-500: #4f46e5;
+  --brand-400: #4338ca;
+  --brand-300: #3730a3;
+  --brand-200: #312e81;
+
+  --page-bg:        #f1f5f9;
+  --body-text:      #0f172a;
+  /* Cards are pure white against the slate page */
+  --card-bg:        #ffffff;
+  --card-border:    #cbd5e1;  /* visible 1px slate border */
+  --card-bg-sm:     #ffffff;
+  /* Inputs: white fill with clear slate border */
+  --input-bg:       #ffffff;
+  --input-border:   #94a3b8;
+  --input-text:     #0f172a;
+  /* Secondary buttons: solid slate surface, dark text */
+  --btn-sec-bg:     #e2e8f0;
+  --btn-sec-hover:  #cbd5e1;
+  --btn-sec-text:   #1e293b;
+  /* Sidebar: slightly off-white with a clear right border */
+  --sidebar-bg:     #f8fafc;
+  --sidebar-border: #cbd5e1;
+  /* Donut chart track: light grey that's visible on white cards */
+  --donut-track:    #e2e8f0;
+  --scrollbar-track: #e2e8f0;
+  --scrollbar-thumb: #94a3b8;
+}
+
+/* ── Base ───────────────────────────────────────────────────────────────────── */
+@layer base {
+  * { box-sizing: border-box; }
+  html { background-color: var(--page-bg); color: var(--body-text); }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background-color: var(--page-bg); }
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: var(--scrollbar-track); }
+  ::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 3px; }
+}
+
+/* ── Components ─────────────────────────────────────────────────────────────── */
+@layer components {
+  /* Cards use explicit variables so they can be true white in light mode */
+  .card    {
+    background-color: var(--card-bg);
+    border: 1px solid var(--card-border);
+    @apply rounded-xl p-5;
+  }
+  .card-sm {
+    background-color: var(--card-bg-sm);
+    border: 1px solid var(--card-border);
+    @apply rounded-lg p-3;
+  }
+
+  .btn          { @apply px-3 py-1.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5; }
+  .btn-primary  { @apply btn bg-brand-500 hover:bg-brand-600 text-white; }
+  /* Secondary button uses explicit variables so surface is visible in both themes */
+  .btn-secondary {
+    @apply btn;
+    background-color: var(--btn-sec-bg);
+    color: var(--btn-sec-text);
+  }
+  .btn-secondary:hover { background-color: var(--btn-sec-hover); }
+  .btn-danger   { @apply btn bg-red-900/60 hover:bg-red-800 text-red-200 border border-red-800; }
+  .btn-success  { @apply btn bg-green-900/60 hover:bg-green-800 text-green-200 border border-green-800; }
+
+  /* Input uses explicit variables for proper light/dark contrast */
+  .input {
+    background-color: var(--input-bg);
+    border: 1px solid var(--input-border);
+    color: var(--input-text);
+    @apply rounded-lg px-3 py-2 text-sm placeholder-gray-500 focus:outline-none focus:ring-1 w-full;
+  }
+  .input:focus {
+    border-color: var(--brand-500);
+    --tw-ring-color: var(--brand-500);
+  }
+  .label { @apply block text-xs text-gray-400 mb-1 font-medium; }
+
+  .status-clean   { @apply text-green-400 bg-green-900/20 border-green-900; }
+  .status-drifted { @apply text-red-400   bg-red-900/20   border-red-900; }
+  .status-new     { @apply text-yellow-400 bg-yellow-900/20 border-yellow-900; }
+  .status-missing { @apply text-orange-400 bg-orange-900/20 border-orange-900; }
+  .status-error   { @apply text-gray-400  bg-gray-800/50  border-gray-700; }
+}
+
+/* ── Light mode flat overrides ──────────────────────────────────────────────
+   Tailwind v3 + PostCSS has no native CSS nesting — all selectors must be flat.
+   ────────────────────────────────────────────────────────────────────────── */
+
+/* text-white → near-black on light surfaces — but NOT on coloured buttons/badges
+   where white is intentional for contrast against the coloured background.
+   We scope this to elements that are NOT buttons and NOT inside buttons. */
+[data-theme="light"] :not(button):not(a).text-white,
+[data-theme="light"] :not(button):not(a) > .text-white {
+  color: var(--gray-200) !important;
+}
+
+/* Guarantee white text on primary buttons regardless of the override above */
+[data-theme="light"] .btn-primary,
+[data-theme="light"] .btn-primary * {
+  color: #ffffff !important;
+}
+
+/* Sidebar border */
+[data-theme="light"] aside {
+  background-color: var(--sidebar-bg) !important;
+  border-right-color: var(--sidebar-border) !important;
+}
+
+/* Sidebar nav active state — use brand fill with white text */
+[data-theme="light"] .bg-indigo-700\/70 {
+  background-color: var(--brand-500) !important;
+}
+
+/* Section heading labels (TENANT OVERVIEW, RESOURCE AREAS etc.) */
+[data-theme="light"] .text-gray-500.uppercase {
+  color: var(--gray-400) !important;
+}
+
+/* Make the donut chart track colour available as a CSS property
+   so TenantInsights can reference it via currentColor trick */
+[data-theme="light"] .donut-track-ref {
+  color: var(--donut-track);
+}
+
+/* Area card rows in Dashboard — give them a subtle inset bg in light mode */
+[data-theme="light"] .rounded-xl.border.border-gray-800 {
+  border-color: var(--card-border) !important;
+}
+
+/* Status badges with opacity — boost their visibility in light mode */
+[data-theme="light"] .bg-red-950\/30   { background-color: #fef2f2 !important; }
+[data-theme="light"] .bg-yellow-950\/30 { background-color: #fefce8 !important; }
+[data-theme="light"] .bg-green-950\/30  { background-color: #f0fdf4 !important; }
+[data-theme="light"] .bg-blue-950\/20   { background-color: #eff6ff !important; }
+[data-theme="light"] .bg-amber-950\/20  { background-color: #fff7ed !important; }
+
+/* Tag pills in light mode — use a light slate surface */
+[data-theme="light"] .bg-gray-800.text-gray-400,
+[data-theme="light"] .bg-gray-800.text-gray-500 {
+  background-color: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+  color: #334155 !important;
+}
+
+/* Card-sm used for stat tiles — ensure white bg */
+[data-theme="light"] .card-sm {
+  background-color: #ffffff !important;
+  border-color: var(--card-border) !important;
+}
+
+/* Progress/bar tracks in light mode */
+[data-theme="light"] .bg-gray-800.rounded-full,
+[data-theme="light"] .h-1\.5.bg-gray-800 {
+  background-color: #e2e8f0 !important;
+}
+
+/* Inline code blocks */
+[data-theme="light"] code {
+  background-color: #f1f5f9 !important;
+  color: #334155 !important;
+}
