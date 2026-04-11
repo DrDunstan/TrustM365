@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/trustm365-banner.svg" alt="TrustM365 — Monitor. Baseline. Restore." width="800" />
+  <img src="docs/assets/trustm365-banner.png" alt="TrustM365 — Monitor. Baseline. Restore." width="800" />
 </p>
 
 <p align="center">
