@@ -46,7 +46,6 @@ Most M365 drift goes undetected. A Conditional Access policy gets quietly disabl
 - **Per-area last-synced timestamp** — each area shows its own last pull time independently
 - **Auto-restore** — toggle per area to automatically revert drift on the next sync
 - **Bulk restore** — restore all drifted resources in an area with one button
-- **Restore dry-run** — preview the exact Graph PATCH body before executing any restore
 - **Resource groups** — organise monitored resources into named, colour-coded groups within an area
 - **Baseline version history** — every save archives the previous version; restore any archived version at any time
 - **Select All / Deselect All** — bulk include or exclude all resources when setting a baseline
@@ -79,9 +78,9 @@ Most M365 drift goes undetected. A Conditional Access policy gets quietly disabl
 - **Always light mode** — all reports use a professional light colour scheme suitable for printing, PDF, and formal client delivery
 - **Download as PDF** — browser print-to-PDF via the in-app viewer
 - **Download as Word (.docx)** — fully structured Word document with tables, formatted headings, MSSP branding, and a per-page footer
-- **Report scheduling** — automated weekly or monthly report generation
 - **MSSP commentary** — add plain-English context to any section before generating; commentary label carries your company name
 - **Report filtering** — filter by tenant, date range, or report type
+- **Baseline Export** — report on your current baseline configuration, useful for audit proof, project documentation, or just peace of mind.
 
 ### Restore & Audit
 
@@ -90,7 +89,6 @@ Most M365 drift goes undetected. A Conditional Access policy gets quietly disabl
 - **Bulk restore** — loop through all drifted resources in an area sequentially
 - **Auto-restore** — trigger on sync automatically when enabled
 - **Rich restore log** — every action logged with resource name, restore type (Property / Full / Bulk / Auto), properties restored, and error detail on failure
-- **Restore dry-run** — returns the exact PATCH body without executing it
 
 ---
 
@@ -128,7 +126,7 @@ Most M365 drift goes undetected. A Conditional Access policy gets quietly disabl
 
 > Licence-gated areas show as **Licence required** rather than erroring. TrustM365 detects available features automatically on first sync.
 
-> **Custom Collectors** — monitor any additional Microsoft Graph endpoint using the Custom Collectors wizard. No code required.
+> **Custom Collectors** — monitor any additional Microsoft Graph endpoint using the Custom Collectors wizard.
 
 ---
 
@@ -356,6 +354,7 @@ Step-by-step guides for every component of TrustM365, in [docs/guides/](docs/gui
 - [ ] Exchange Online — transport rules, connectors, anti-spam policies
 - [ ] Microsoft Teams — meeting policies, external access, app permissions
 - [ ] SharePoint / OneDrive — sharing settings, access control
+- [ ] Audit Log Export - Export audit trail to Log Analytics
 
 ### v1.2 — Access Control
 - [ ] Azure AD SSO login for the dashboard
