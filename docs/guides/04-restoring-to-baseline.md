@@ -2,6 +2,10 @@
 
 > **Write permissions required.** Restore pushes changes to Microsoft 365 via the Graph API. The App Registration must have the corresponding `ReadWrite` permissions granted. Read-only deployments will not show restore buttons.
 
+![Restore log and remediation context](./visuals/guide-restore-log.png)
+
+_Visual reference: restore workflow context and restore-log tab in Area View._
+
 ---
 
 ## Restore options
@@ -178,5 +182,7 @@ The log is append-only. Old entries are never deleted automatically.
 | Role Assignments | `RoleManagement.ReadWrite.Directory` |
 | Intune Compliance, Config, Update Rings, MTD | `DeviceManagementConfiguration.ReadWrite.All` |
 | Endpoint Security (AV, Firewall, BitLocker, ASR) | `DeviceManagementConfiguration.ReadWrite.All` |
+| SharePoint Sites | `Sites.Manage.All` |
+| Teams | `TeamSettings.ReadWrite.All` |
 
 If a restore returns `403 Permission denied`, the App Registration is missing the relevant `ReadWrite` permission. Add it in Entra ID, grant admin consent, and re-sync.

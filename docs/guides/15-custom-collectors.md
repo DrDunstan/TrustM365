@@ -2,6 +2,10 @@
 
 Navigate to **Custom Collectors** in the MSSP sidebar section.
 
+![Custom Collectors page](./visuals/guide-custom-collectors.png)
+
+_Visual reference: collector onboarding screen and entry point for creating a new collector._
+
 Custom Collectors let you monitor any Microsoft Graph endpoint as a resource area, without writing code. Pull, baseline, and detect drift on any configuration that Graph exposes — named locations, authentication strength policies, cross-tenant access settings, and more.
 
 > Custom collectors are always **read-only**. Restore is never available for user-defined areas.
@@ -104,6 +108,8 @@ Custom collectors inherit the permissions already granted to the App Registratio
 3. In TrustM365, click the **Re-check permissions** button on the tenant or re-sync — the area will unlock automatically
 
 The test pull will return a clear `403 Permission denied` if the required permission is missing.
+
+Note: Custom collectors targeting SharePoint or Teams endpoints may require the specific permissions listed in the prerequisites guide (`Sites.Read.All`, `Team.ReadBasic.All` for monitoring) and their corresponding write permissions for restore (`Sites.Manage.All`, `TeamSettings.ReadWrite.All`). These Graph endpoints can also be subject to throttling and specialised query patterns (pagination, `$select`, consistencyLevel), so prefer narrow `$select` fields and validate in Graph Explorer before saving a collector.
 
 ---
 

@@ -1,9 +1,10 @@
 {
   "name": "trustm365",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "TrustM365 - M365 Baseline Drift Monitor",
   "scripts": {
-    "start": "node backend/src/index.js",
+    "start": "npm --prefix backend start",
+    "postinstall": "npm --prefix backend install --omit=dev",
     "build": "cd frontend && npm ci && npm run build",
     "dev": "npx concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
     "dev:backend": "cd backend && npm run dev",
@@ -11,7 +12,12 @@
     "install:all": "npm install && cd backend && npm install && cd ../frontend && npm install",
     "db:init": "node -e \"require('./backend/src/database/init.js')\"",
     "db:backup": "node scripts/backup.js",
-    "generate:key": "node scripts/generateKey.js"
+    "generate:key": "node scripts/generateKey.js",
+    "sentinel:validate": "node scripts/sentinel/validate/validate_sentinel_assets.js",
+    "sentinel:preflight": "node scripts/sentinel/validate/preflight_sentinel_assets.js",
+    "sentinel:deploy": "powershell -ExecutionPolicy Bypass -File scripts/sentinel/deploy/deploy_content_pack.ps1",
+    "reference:import": "node scripts/import_reference_template.js",
+    "go-live:smoke": "node scripts/go_live_smoke.js"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"

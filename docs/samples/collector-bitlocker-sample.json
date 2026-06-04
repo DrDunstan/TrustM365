@@ -1,0 +1,13 @@
+{
+  "device1": {
+    "id": "device1",
+    "displayName": "Device 1",
+    "settings": [
+      {
+        "settingDefinitionId": "device_vendor_msft_bitlocker_requiredeviceencryption",
+        "name": "device_vendor_msft_bitlocker_requiredeviceencryption_1",
+        "value": "device_vendor_msft_bitlocker_requiredeviceencryption_1"
+      }
+    ]
+  }
+}

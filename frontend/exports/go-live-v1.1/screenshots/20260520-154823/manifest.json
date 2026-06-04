@@ -1,0 +1,11 @@
+{
+  "generatedAt": "2026-05-20T07:48:43.782Z",
+  "outputDirectory": "C:\\Users\\Anto\\Documents\\GitHub\\TrustM365\\frontend\\exports\\go-live-v1.1\\screenshots\\20260520-154823",
+  "baseURL": "http://localhost:5174",
+  "firstTenantId": "da7d19b4-f046-47e8-a448-76d5aee6b96e",
+  "securityRouteDenylist": [
+    "/security/templates",
+    "/security/reference-templates",
+    "/templates"
+  ]
+}

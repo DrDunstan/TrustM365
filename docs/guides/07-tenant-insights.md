@@ -2,6 +2,10 @@
 
 The Tenant Insights panel appears on the tenant dashboard below the Overview tiles. It provides real-time security telemetry fetched from Microsoft Graph.
 
+![Tenant dashboard insights cards](./visuals/guide-dashboard-tenant.png)
+
+_Visual reference: overview and insights cards as shown on the tenant dashboard._
+
 ---
 
 ## Panels

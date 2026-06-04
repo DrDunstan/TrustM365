@@ -1,0 +1,39 @@
+{
+  "key": "defender",
+  "display_name": "Microsoft Defender Antivirus",
+  "category": "antivirus",
+  "policyType": "Microsoft Defender Antivirus",
+  "scope": "Device",
+  "required_licenses": ["Defender for Endpoint"],
+  "source_url": "https://github.com/SkipToTheEndpoint/OpenIntuneBaseline/blob/main/WINDOWS/SETTINGSOUTPUT.md"
+  ,
+  "settingsMap": {
+    "Allow Cloud Protection": {
+      "property_path": "settings.defenderRequireCloudProtection",
+      "setting_definition_id": "device_vendor_msft_policy_config_defender_allowcloudprotection",
+      "type": "boolean",
+      "allowed_values": ["Allowed","Blocked"],
+      "notes": "Mapped to Intune settings property defenderRequireCloudProtection (coerce Allowed=>true)"
+    },
+    "Enable Network Protection": {
+      "property_path": "settings.defenderRequireNetworkInspectionSystem",
+      "setting_definition_id": "device_vendor_msft_policy_config_defender_enablenetworkprotection",
+      "type": "boolean",
+      "notes": "Mapped to defenderRequireNetworkInspectionSystem in config profile settings"
+    },
+    "Cloud Block Level": {
+      "property_path": "settings.defenderCloudBlockLevel",
+      "setting_definition_id": "device_vendor_msft_policy_config_defender_cloudblocklevel",
+      "type": "enum",
+      "allowed_values": ["notConfigured","Block","Allow","Audit"],
+      "notes": "Maps defenderCloudBlockLevel property from config profiles (alias for cloud protection level)"
+    },
+    "Pua Protection": {
+      "property_path": "settings.defenderPuaProtection",
+      "setting_definition_id": "device_vendor_msft_policy_config_defender_puaprotection",
+      "type": "enum",
+      "allowed_values": ["Enabled","Disabled","Audit"],
+      "notes": "Mapped to defenderPuaProtection (best-effort alias)"
+    }
+  }
+}

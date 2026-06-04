@@ -6,7 +6,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="MIT License"></a>
   <a href="https://nodejs.org"><img src="https://img.shields.io/badge/Node.js-20%20LTS-green.svg" alt="Node.js 20 LTS"></a>
   <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="PRs Welcome"></a>
-  <a href="https://github.com/AntoPorter/trustm365/releases"><img src="https://img.shields.io/badge/version-1.0.0-blue.svg" alt="Version 1.0.0"></a>
+  <a href="https://github.com/AntoPorter/trustm365/releases"><img src="https://img.shields.io/badge/version-1.1.0-blue.svg" alt="Version 1.1.0"></a>
 </p>
 
 ---
@@ -53,7 +53,7 @@ Most M365 drift goes undetected. A Conditional Access policy gets quietly disabl
 
 ### Tenant Management
 
-- **Per-tenant App Registration** — each tenant uses its own Entra ID App Registration, stored encrypted with AES-256-GCM
+- **Flexible App Registration model** — use dedicated per-tenant credentials or shared app registrations with tenant bindings, all stored encrypted with AES-256-GCM
 - **Live permission checks** — permissions re-verified on every sync; area access badges update automatically
 - **Permission Sync** — on-demand re-check of all App Registration permissions from Graph; unlocks newly consented areas immediately. Accessible from ⚙ → App Registration section
 - **Credential rotation** — update an App Registration secret without losing any data. Validates the new secret before saving. Accessible from ⚙ → App Registration section at any time
@@ -68,8 +68,11 @@ Most M365 drift goes undetected. A Conditional Access policy gets quietly disabl
 - **Bulk sync** — refresh all tenants in parallel with one button
 - **Cross-tenant drift export** — CSV and JSON reports across all tenants and areas
 - **Webhook notifications** — push JSON drift alerts to any HTTP endpoint on first detection or every sync. Compatible with Teams, Slack, and PagerDuty out of the box
-- **Baseline Templates (Security Checks)** — Maester and CISA SCuBA-referenced security checks as a read-only assessment layer across selected tenants
+- **Security Templates (Security Checks)** — Zero Trust Assessment V2 security checks as a read-only assessment layer. **Now supports single-tenant selection only.**
+- **Reference Templates** — policy-scoped comparisons with aggregated owner summaries. **Multi-tenant compare and async compare jobs have been removed in v1.1; all compare operations are now single-tenant only.**
 - **MSSP Settings** — organisation name, tagline, logo, brand colour, report accent colour
+- **Log Analytics export** — direct ingestion to custom tables with per-category controls (drift, restore, jobs, webhooks, API logs)
+- **Sentinel content pack** — prebuilt KQL queries, analytic rule templates, and workbook JSON for SOC operations
 - **White-labelling** — all generated reports carry your company name and branding; commentary label reads "YourCompany Commentary"
 
 ### Reporting
@@ -124,15 +127,44 @@ Most M365 drift goes undetected. A Conditional Access policy gets quietly disabl
 | Endpoint Security — Disk Encryption (BitLocker) | ✅ | ✅ |
 | Endpoint Security — Attack Surface Reduction | ✅ | ✅ |
 
+### SharePoint
+
+| Area | Monitors | Restores |
+|---|:---:|:---:|
+| SharePoint Sites | ✅ | ✅ |
+| Tenant Security Settings | ✅ | ✅ |
+
+### Exchange Online
+
+| Area | Monitors | Restores |
+|---|:---:|:---:|
+| Mailboxes | ✅ | — Monitor only |
+| Mailbox Security Settings | ✅ | ✅ |
+| Mail Flow Connectors | ✅ | — Monitor only |
+| Transport Rules | ✅ | — Monitor only |
+
+### Microsoft Teams
+
+| Area | Monitors | Restores |
+|---|:---:|:---:|
+| Messaging Policies | ✅ | ✅ |
+| Meeting Policies | ✅ | ✅ |
+| Team Membership | ✅ | ✅ |
+| App Permission Policies | ✅ | — Monitor only |
+| Channels Policies | ✅ | — Monitor only |
+| Org App Settings | ✅ | ✅ |
+
 > Licence-gated areas show as **Licence required** rather than erroring. TrustM365 detects available features automatically on first sync.
 
 > **Custom Collectors** — monitor any additional Microsoft Graph endpoint using the Custom Collectors wizard.
 
 ---
 
-## Baseline Templates — Security Checks
+## Security Templates — Security Checks
 
-The Baseline Templates section provides a **read-only security assessment** layer based on [Maester](https://maester.dev) and [CISA SCuBA](https://www.cisa.gov/resources-tools/services/secure-cloud-business-applications-scuba-project) guidance. It runs independently of tenant baselines and does not modify any configuration.
+The Security Templates section provides a **read-only security assessment** layer based on the Zero Trust Assessment V2 guidance. It runs independently of tenant baselines and does not modify any configuration.
+
+v1.1 updates: Security Templates and Reference Templates now support only single-tenant selection. Multi-tenant compare and async compare jobs are no longer available.
 
 | Group | Checks |
 |---|---|
@@ -168,13 +200,15 @@ trustm365/
 │   ├── routes/             REST API (Express 4)
 │   ├── services/           MSAL auth · Graph API client · permission checker
 │   └── database/           SQLite (WAL mode, AES-256-GCM encrypted secrets)
+├── data/
+│   └── sentinel/           KQL, analytic rules, workbook assets, deployment notes
 ├── docs/
-│   ├── guides/             18 step-by-step feature guides
+│   ├── guides/             22 step-by-step feature guides
 │   ├── prerequisites.md    App Registration setup
 │   ├── deployment.md       Local, Azure App Service, Docker Compose
 │   ├── security.md         Encryption model, network hardening
 │   └── usage.md            Full usage reference
-└── scripts/                Key generation and database backup utilities
+└── scripts/                Key generation, backup, and Sentinel deployment utilities
 ```
 
 **Tech stack — all free, all open-source:**
@@ -187,7 +221,7 @@ trustm365/
 | Auth | OAuth 2.0 client credentials (app-only, no user sign-in required) |
 | Database | SQLite with WAL mode — zero extra infrastructure |
 | Security | AES-256-GCM secret encryption, Helmet.js, CORS lockdown |
-| Testing | Jest — 53 unit tests covering drift engine, assembler, restore logic |
+| Testing | Test artifacts are excluded from this deployment package build |
 
 ---
 
@@ -318,6 +352,7 @@ Pull live config  →  Set Baseline  →  Sync  →  Drift detected?
 | [**Deployment**](docs/deployment.md) | Local, Azure App Service, and Docker Compose |
 | [**Usage Guide**](docs/usage.md) | Registering tenants, baselines, drift detection, restore, MSSP |
 | [**Security**](docs/security.md) | Credential handling, encryption model, network hardening |
+| [**Sentinel Integration**](docs/integrations/sentinel-log-analytics.md) | Log Analytics ingestion, Sentinel rules/workbook, and SOC operations |
 | [**Contributing**](CONTRIBUTING.md) | How to add resource area collectors and contribute |
 | [**Changelog**](CHANGELOG.md) | Release history |
 
@@ -340,26 +375,28 @@ Step-by-step guides for every component of TrustM365, in [docs/guides/](docs/gui
 | [11 — Report scheduling](docs/guides/11-report-scheduling.md) | Automated weekly and monthly report generation |
 | [12 — Webhook notifications](docs/guides/12-webhook-notifications.md) | Drift alerts to Teams, Slack, PagerDuty, or any HTTP endpoint |
 | [13 — White-labelling](docs/guides/13-white-labelling.md) | Company branding, logo, colours for client-facing output |
-| [14 — Baseline Templates](docs/guides/14-baseline-templates.md) | Security posture checks (Maester / CISA SCuBA) |
+| [14 — Security Templates](docs/guides/14-security-templates.md) | Security posture checks (Zero Trust Assessment V2) |
 | [15 — Custom Collectors](docs/guides/15-custom-collectors.md) | Monitor any Graph endpoint without code |
 | [16 — Intune endpoint security](docs/guides/16-intune-endpoint-security.md) | Compliance, Update Rings, MTD, App Protection, Antivirus, Firewall, BitLocker, ASR |
 | [17 — Credential rotation](docs/guides/17-credential-rotation.md) | Updating an App Registration secret without data loss |
 | [18 — Troubleshooting](docs/guides/18-troubleshooting.md) | Common problems and how to fix them |
+| [19 — App Registrations](docs/guides/19-app-registrations.md) | Detailed steps for managing App Registrations in TrustM365 |
+| [20 — Reference Templates](docs/guides/20-reference-templates.md) | Managing and using Reference Templates effectively |
+| [21 — Log Analytics and Sentinel](docs/guides/21-log-analytics-and-sentinel.md) | Configure direct telemetry ingestion and Sentinel detection workflows |
+| [22 — Sentinel content pack operations](docs/guides/22-sentinel-content-pack-operations.md) | Validate, deploy, and maintain rules/workbook artifacts |
 
 ---
 
 ## Roadmap
 
-### v1.1 — Additional Resource Areas
-- [ ] Exchange Online — transport rules, connectors, anti-spam policies
-- [ ] Microsoft Teams — meeting policies, external access, app permissions
-- [ ] SharePoint / OneDrive — sharing settings, access control
-- [ ] Audit Log Export - Export audit trail to Log Analytics
-
 ### v1.2 — Access Control
 - [ ] Azure AD SSO login for the dashboard
 - [ ] Role-based access — read-only vs restore permissions per user
 - [ ] Multi-user audit trail
+
+### v1.3 — Platform Extensions
+- [ ] Log Analytics DCR/AAD ingestion path (alternative to shared key)
+- [ ] Sentinel workbook parameterization for custom table prefixes
 
 ---
 

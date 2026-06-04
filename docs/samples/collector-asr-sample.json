@@ -1,0 +1,13 @@
+{
+  "device1": {
+    "id": "device1",
+    "displayName": "Device 1",
+    "settings": [
+      {
+        "settingDefinitionId": "device_vendor_msft_policy_config_defender_useadvancedprotectionagainstransomware",
+        "name": "device_vendor_msft_policy_config_defender_enablecontrolledfolderaccess_2",
+        "value": "device_vendor_msft_policy_config_defender_enablecontrolledfolderaccess_2"
+      }
+    ]
+  }
+}

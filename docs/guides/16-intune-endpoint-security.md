@@ -2,6 +2,10 @@
 
 TrustM365 monitors nine Microsoft Intune areas across two API tiers. Five use the Graph v1.0 API and four use the Graph beta API (Endpoint Security Settings Catalog policy types).
 
+![Intune reference templates and security baseline context](./visuals/guide-reference-templates.png)
+
+_Visual reference: Intune-focused templates and comparison workflow context._
+
 ---
 
 ## Area overview

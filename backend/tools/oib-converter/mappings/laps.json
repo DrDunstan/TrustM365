@@ -1,0 +1,43 @@
+{
+  "key": "laps",
+  "display_name": "Windows LAPS (Local Administrator Password Solution)",
+  "category": "account_protection",
+  "policyType": "Local admin password solution",
+  "scope": "Device",
+  "required_licenses": [],
+  "source_url": "https://github.com/SkipToTheEndpoint/OpenIntuneBaseline/blob/main/WINDOWS/SETTINGSOUTPUT.md",
+  "settingsMap": {
+    "Backup Directory": {
+      "property_path": "settings[name=Backup Directory].value",
+      "type": "enum",
+      "allowed_values": [
+        "Backup the password to Microsoft Entra ID only",
+        "Backup to AD DS"
+      ]
+    },
+    "Password Age Days": {
+      "property_path": "settings[name=Password Age Days].value",
+      "type": "int"
+    },
+    "Password Length": {
+      "property_path": "settings[name=Password Length].value",
+      "type": "int"
+    },
+    "device_vendor_msft_laps_policies_backupdirectory_1": {
+      "property_path": "settings[name=Backup Directory].value",
+      "type": "enum",
+      "allowed_values": [
+        "Backup the password to Microsoft Entra ID only",
+        "Backup to AD DS"
+      ]
+    },
+    "device_vendor_msft_laps_policies_backupdirectory": {
+      "property_path": "settings[name=Backup Directory].value",
+      "type": "enum",
+      "allowed_values": [
+        "Backup the password to Microsoft Entra ID only",
+        "Backup to AD DS"
+      ]
+    }
+  }
+}

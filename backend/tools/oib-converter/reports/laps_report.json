@@ -1,0 +1,32 @@
+[
+  {
+    "control_id": "oib:win-oib-es-windows-laps-d-laps-configuration-v3-1:backup-directory",
+    "title": "Backup Directory",
+    "recommended_value": "Backup the password to Microsoft Entra ID only",
+    "actual_value": "Backup the password to Microsoft Entra ID only",
+    "status": "compliant",
+    "mdm_csp": null,
+    "registry_key": null,
+    "notes": null
+  },
+  {
+    "control_id": "oib:win-oib-es-windows-laps-d-laps-configuration-v3-1:password-age-days",
+    "title": "Password Age Days",
+    "recommended_value": "7",
+    "actual_value": "7",
+    "status": "compliant",
+    "mdm_csp": null,
+    "registry_key": null,
+    "notes": null
+  },
+  {
+    "control_id": "oib:win-oib-es-windows-laps-d-laps-configuration-v3-1:password-length",
+    "title": "Password Length",
+    "recommended_value": "21",
+    "actual_value": "21",
+    "status": "compliant",
+    "mdm_csp": null,
+    "registry_key": null,
+    "notes": null
+  }
+]

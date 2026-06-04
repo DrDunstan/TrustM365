@@ -1,5 +1,9 @@
 # Guide 03 — Understanding drift detection
 
+![Area View with status and drift indicators](./visuals/guide-area-view.png)
+
+_Visual reference: where drift states and resource-level differences surface._
+
 ---
 
 ## How drift is detected

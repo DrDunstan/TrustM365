@@ -56,17 +56,26 @@ function TenantCard({ tenant, areas, onSelect, navigate }) {
   )
   const hasDrift      = driftedAreas.length > 0
   const totalDrifts   = driftedAreas.reduce((s, a) => s + (a.latestDrift?.driftCount || 0), 0)
-  const noBaseline    = tenantAreas.length > 0 && tenantAreas.every(a => !a.has_baseline)
-  const unchecked     = tenantAreas.length === 0
+  const noBaselineSet = tenantAreas.length === 0 || tenantAreas.every(a => !a.has_baseline)
 
-  const status = hasDrift ? 'drifted'
-    : cleanAreas.length > 0 ? 'clean'
-    : 'unchecked'
+  const status = hasDrift
+    ? 'drifted'
+    : cleanAreas.length > 0
+    ? 'clean'
+    : 'no-baseline'
 
   return (
-    <button
+    <div
+      role="button"
+      tabIndex={0}
       onClick={() => onSelect(tenant)}
-      className={`group w-full text-left rounded-2xl border p-5 transition-all hover:scale-[1.01] active:scale-[0.99] max-w-sm
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onSelect(tenant)
+        }
+      }}
+      className={`group w-full text-left rounded-2xl border p-5 transition-all hover:scale-[1.01] active:scale-[0.99] max-w-sm cursor-pointer
         ${hasDrift
           ? 'bg-red-950/10 border-red-900/60 hover:bg-red-950/20 hover:border-red-700/80'
           : status === 'clean'
@@ -127,16 +136,14 @@ function TenantCard({ tenant, areas, onSelect, navigate }) {
         </div>
       )}
 
-      {/* No baseline / unchecked */}
-      {!hasDrift && status === 'unchecked' && (
+      {/* No baseline set */}
+      {!hasDrift && status === 'no-baseline' && (
         <div className="mt-3 pt-3 border-t border-gray-800 flex items-center gap-2">
           <Circle size={11} className="text-gray-600 shrink-0"/>
-          <span className="text-xs text-gray-600">
-            {unchecked ? 'No areas synced yet' : noBaseline ? 'No baselines set' : 'Not yet checked'}
-          </span>
+          <span className="text-xs text-gray-600">No baseline set</span>
         </div>
       )}
-    </button>
+    </div>
   )
 }
 
@@ -165,11 +172,11 @@ export default function HomePage({ tenants, areas, selectedTenant, setSelectedTe
     )
     return ta.length > 0 && hasClean && !hasGenuineDrift
   })
-  const uncheckedTenants = tenants.filter(t => !driftedTenants.includes(t) && !healthyTenants.includes(t))
+  const noBaselineTenants = tenants.filter(t => !driftedTenants.includes(t) && !healthyTenants.includes(t))
 
-  const totalDrifts = Object.values(areas).flat()
+  const totalDrifts = Object.values(areas || {}).flat()
     .reduce((s, a) => s + (a.latestDrift?.status === 'drifted' ? (a.latestDrift.driftCount || 0) : 0), 0)
-  const totalBaselines = Object.values(areas).flat().filter(a => a.has_baseline).length
+  const totalBaselines = Object.values(areas || {}).flat().filter(a => a.has_baseline).length
 
   return (
     <div className="min-h-screen p-8">
@@ -290,18 +297,18 @@ export default function HomePage({ tenants, areas, selectedTenant, setSelectedTe
             </div>
           )}
 
-          {/* Unchecked / no baseline section */}
-          {uncheckedTenants.length > 0 && (
+          {/* No baseline set section */}
+          {noBaselineTenants.length > 0 && (
             <div className="space-y-4">
               <div className="flex items-center gap-2">
                 <Circle size={13} className="text-gray-500"/>
                 <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                  {driftedTenants.length === 0 && healthyTenants.length === 0 ? 'Tenants' : 'Not Yet Monitored'}
+                  No Baseline Set
                 </span>
                 <div className="flex-1 h-px bg-gray-800"/>
               </div>
               <div className="flex flex-wrap justify-center gap-4">
-                {uncheckedTenants.map(t => (
+                {noBaselineTenants.map(t => (
                   <div key={t.id} className="w-full sm:w-[calc(50%-8px)] lg:w-[calc(33.333%-11px)] min-w-[280px] max-w-sm">
                     <TenantCard tenant={t} areas={areas[t.id]} onSelect={handleSelectTenant} navigate={navigate}/>
                   </div>

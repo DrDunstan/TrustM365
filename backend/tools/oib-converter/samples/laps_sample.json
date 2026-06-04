@@ -1,0 +1,13 @@
+{
+  "name": "Win - OIB - ES - Windows LAPS - D - LAPS Configuration - v3.1",
+  "description": "Windows LAPS configuration",
+  "profileType": "Settings catalog",
+  "category": "Account protection",
+  "policyType": "Local admin password solution (Windows LAPS)",
+  "platformSupported": "Windows 10 and later",
+  "settings": [
+    { "name": "Backup Directory", "value": "Backup the password to Microsoft Entra ID only" },
+    { "name": "Password Age Days", "value": "7" },
+    { "name": "Password Length", "value": "21" }
+  ]
+}

@@ -3,10 +3,13 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import {
   AlertTriangle, CheckCircle, Circle, Plus, Trash2, ChevronDown, ChevronRight,
   Layers, Tag, Edit2, Check, X, ShieldAlert, Home, Shield, Settings, Star,
-  Zap, Sun, Moon, FileText, Search
+  Zap, Sun, Moon, FileText, Search, KeyRound
 } from 'lucide-react'
 import { tenantApi, reportApi } from '../api/client.js'
 import { useBranding } from '../App.jsx'
+
+const PLATFORM_BUILD_VERSION = String(import.meta.env.VITE_APP_BUILD_VERSION || 'v1.1.0').trim()
+const PLATFORM_REPOSITORY_URL = 'https://github.com/AntoPorter/trustm365'
 
 // Area groupings matching Dashboard
 const AREA_GROUPS = [
@@ -31,6 +34,21 @@ const AREA_GROUPS = [
       'intune_ep_disk_encryption',
       'intune_ep_asr',
     ],
+  },
+  {
+    key: 'sharepoint',
+    label: 'SharePoint',
+    areaKeys: ['sharepoint_sites', 'sharepoint_tenant_settings'],
+  },
+  {
+    key: 'teams',
+    label: 'Microsoft Teams',
+    areaKeys: ['teams_policies_messaging', 'teams_policies_meetings', 'teams_membership', 'teams_app_permission_policies', 'teams_channels_policies', 'teams_org_app_settings'],
+  },
+  {
+    key: 'exchange',
+    label: 'Exchange Online',
+    areaKeys: ['exchange_mailboxes', 'exchange_mailbox_security', 'exchange_connectors', 'exchange_transport_rules'],
   },
 ]
 
@@ -206,7 +224,8 @@ function TenantAreaList({ tenant, tenantAreas, location, navigate }) {
   }
 
   // Separate favourited areas from the rest
-  const favAreas = tenantAreas.filter(a => favourites.includes(a.area_key))
+  const safeAreas = (tenantAreas || []).filter(a => a.area_key !== 'teams_teams')
+  const favAreas = safeAreas.filter(a => favourites.includes(a.area_key))
 
   return (
     <div className="space-y-0.5">
@@ -224,7 +243,7 @@ function TenantAreaList({ tenant, tenantAreas, location, navigate }) {
 
       {/* Grouped areas */}
       {AREA_GROUPS.map(group => {
-        const groupAreas = tenantAreas.filter(a => group.areaKeys.includes(a.area_key))
+        const groupAreas = safeAreas.filter(a => group.areaKeys.includes(a.area_key))
         groupAreas.sort((a, b) => group.areaKeys.indexOf(a.area_key) - group.areaKeys.indexOf(b.area_key))
         if (groupAreas.length === 0) return null
         const isCollapsed = !!collapsed[group.key]
@@ -232,8 +251,6 @@ function TenantAreaList({ tenant, tenantAreas, location, navigate }) {
           a.latestDrift?.status === 'drifted' && (a.latestDrift?.driftCount || 0) > 0
         ).length
         const nonFavAreas = groupAreas.filter(a => !favourites.includes(a.area_key))
-
-        // Short label for sidebar (strips "Microsoft " prefix to save space)
         const shortLabel = group.label.replace('Microsoft ', '')
 
         return (
@@ -243,7 +260,7 @@ function TenantAreaList({ tenant, tenantAreas, location, navigate }) {
               className="w-full flex items-center gap-1.5 px-2 py-1 rounded hover:bg-gray-800/50 transition-colors group/grp">
               {isCollapsed
                 ? <ChevronRight size={10} className="text-gray-600 shrink-0"/>
-                : <ChevronDown  size={10} className="text-gray-600 shrink-0"/>}
+                : <ChevronDown size={10} className="text-gray-600 shrink-0"/>}
               <span className="text-xs font-semibold text-gray-600 uppercase tracking-wider flex-1 text-left">
                 {shortLabel}
               </span>
@@ -269,7 +286,7 @@ function TenantAreaList({ tenant, tenantAreas, location, navigate }) {
       {/* Any ungrouped areas (future-proofing) */}
       {(() => {
         const allGrouped = AREA_GROUPS.flatMap(g => g.areaKeys)
-        const ungrouped = tenantAreas.filter(a => !allGrouped.includes(a.area_key))
+        const ungrouped = safeAreas.filter(a => !allGrouped.includes(a.area_key))
         return ungrouped.map(area => renderAreaButton(area))
       })()}
     </div>
@@ -331,10 +348,14 @@ export default function Sidebar({ tenants, setTenants, selectedTenant, setSelect
     finally { setSavingMeta(false) }
   }
 
-  const selectTenant = (tenant) => {
+  const selectTenant = (tenant, navState = null) => {
     setSelectedTenant(tenant)
     setExpandedTenant(expandedTenant === tenant.id ? null : tenant.id)
-    navigate('/')
+    if (navState) {
+      navigate('/', { state: navState })
+    } else {
+      navigate('/')
+    }
   }
 
   const isActive = (path) => location.pathname === path
@@ -361,18 +382,6 @@ export default function Sidebar({ tenants, setTenants, selectedTenant, setSelect
               className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs font-medium transition-colors ${isActive('/portfolio') ? 'bg-indigo-700/70 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>
               <Layers size={13} /> Portfolio Overview
             </button>
-            <button onClick={() => navigate('/templates')}
-              className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs font-medium transition-colors ${isActive('/templates') ? 'bg-indigo-700/70 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>
-              <Shield size={13} /> Baseline Templates
-            </button>
-            <button onClick={() => navigate('/mssp-settings')}
-              className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs font-medium transition-colors ${isActive('/mssp-settings') ? 'bg-indigo-700/70 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>
-              <Settings size={13} /> MSSP Settings
-            </button>
-            <button onClick={() => navigate('/custom-collectors')}
-              className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs font-medium transition-colors ${isActive('/custom-collectors') ? 'bg-indigo-700/70 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>
-              <Zap size={13} /> Custom Collectors
-            </button>
             <button onClick={() => navigate('/reports')}
               className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs font-medium transition-colors ${isActive('/reports') ? 'bg-indigo-700/70 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>
               <FileText size={13} />
@@ -382,6 +391,29 @@ export default function Sidebar({ tenants, setTenants, selectedTenant, setSelect
                   {unreadReports}
                 </span>
               )}
+            </button>
+            <button onClick={() => navigate('/custom-collectors')}
+              className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs font-medium transition-colors ${isActive('/custom-collectors') ? 'bg-indigo-700/70 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>
+              <Zap size={13} /> Custom Collectors
+            </button>
+            <button onClick={() => navigate('/mssp-settings')}
+              className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs font-medium transition-colors ${isActive('/mssp-settings') ? 'bg-indigo-700/70 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>
+              <Settings size={13} /> MSSP Settings
+            </button>
+          </div>
+        </div>
+
+        {/* Security section */}
+        <div className="px-3 pt-1 pb-1">
+          <div className="text-xs font-semibold text-gray-600 uppercase tracking-wider px-2 pb-1.5">Security</div>
+          <div className="space-y-0.5">
+            <button onClick={() => navigate('/security/templates')}
+              className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs font-medium transition-colors ${isActive('/security/templates') || isActive('/templates') ? 'bg-indigo-700/70 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>
+              <Shield size={13} /> Security Templates
+            </button>
+            <button onClick={() => navigate('/security/reference-templates')}
+              className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs font-medium transition-colors ${isActive('/security/reference-templates') ? 'bg-indigo-700/70 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>
+              <FileText size={13} /> Intune Reference Templates
             </button>
           </div>
         </div>
@@ -415,6 +447,17 @@ export default function Sidebar({ tenants, setTenants, selectedTenant, setSelect
                   className={`group flex items-center gap-2 px-2.5 py-2 rounded-lg cursor-pointer transition-colors ${isSelected ? 'bg-gray-800 text-white' : 'text-gray-400 hover:bg-gray-900 hover:text-white'}`}>
                   {DRIFT_ICON[overallStatus] || DRIFT_ICON.default}
                   <span className="flex-1 text-xs font-medium truncate">{tenant.display_name}</span>
+                  {tenant.app_registration_id && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        selectTenant(tenant, { focus: 'app-registration', tenantId: tenant.id })
+                      }}
+                      title="Open App Registration settings"
+                      className="shrink-0 p-0.5 rounded hover:bg-gray-700/50">
+                      <KeyRound size={10} className="text-brand-400" />
+                    </button>
+                  )}
                   {driftedCount > 0 && (
                     <span className="text-xs bg-red-950 text-red-400 border border-red-900 px-1.5 py-0.5 rounded font-bold shrink-0">{driftedCount}</span>
                   )}
@@ -507,6 +550,16 @@ export default function Sidebar({ tenants, setTenants, selectedTenant, setSelect
             className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-medium text-gray-400 hover:text-white hover:bg-gray-800 border border-gray-800 hover:border-gray-700 transition-colors">
             <Plus size={12}/> Add Tenant
           </button>
+          <div className="mt-2 flex justify-center" title="Platform build version">
+            <a
+              href={PLATFORM_REPOSITORY_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center rounded-full border border-indigo-800/70 bg-indigo-950/40 px-2.5 py-1 text-[11px] font-medium text-indigo-300 hover:bg-indigo-900/50 hover:text-indigo-200 transition-colors"
+            >
+              Build Version: {PLATFORM_BUILD_VERSION}
+            </a>
+          </div>
         </div>
       </aside>
 

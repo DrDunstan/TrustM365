@@ -60,6 +60,12 @@ Each resource area is shown with one of:
 | **Locked** | Required read permission missing — area will not be monitored |
 | **Licence required** | Permissions granted but the licence is not available on this tenant |
 
+For collectors that are intentionally monitor-only, the tenant screens now explicitly show:
+- `Read` badges with required read permissions
+- `ReadWrite: Not available for this collector`
+
+This makes it clear that no Graph ReadWrite permission exists for that collector, rather than a consent gap.
+
 You can register with any combination. Permissions can be added at any time — TrustM365 re-checks on every sync.
 
 ---
@@ -116,7 +122,7 @@ The left sidebar organises areas per tenant into two collapsible groups:
 
 The **MSSP** section at the top of the sidebar contains:
 - Portfolio Overview
-- Baseline Templates
+- Security Templates
 - MSSP Settings
 - Custom Collectors
 
@@ -147,6 +153,8 @@ Expand any included resource to choose how it is monitored:
 | **Remove** | Moves the resource back to "Not in Baseline". |
 
 In Properties mode, tick the fields you want to watch. Field labels are shown alongside the field path.
+
+Note: The Area View header no longer displays a per-collector "Fields captured" list. To discover or select fields to monitor, use the Baseline Editor (Edit Baseline) or, for custom collectors, run a Test Pull in Custom Collectors.
 
 ### Baseline Active / No Baseline
 
@@ -190,11 +198,15 @@ Policy State
 
 Each drifted property has a **Fix** button to restore just that property.
 
+Tip: When a resource has many nested arrays or JSON fields, use the **Expand all** control in the open resource panel to open every collapsible value for easier inspection. This expands arrays/objects in the UI (display-only) and does not change any stored baseline values.
+
 ---
 
 ## Restoring to Baseline
 
 > **Restore requires write permissions.** If only read permissions are granted, restore buttons are hidden and a Read-only banner appears. See [prerequisites.md](prerequisites.md).
+
+> **Some built-in collectors are read-only by design.** In that case, the Area/Dashboard permission badges show `ReadWrite: Not available for this collector`.
 
 > **Custom collectors are always read-only** — restore is never available for user-defined areas.
 
@@ -235,17 +247,25 @@ Click **Delete Baseline** in the Baseline Editor header to remove the active bas
 
 ---
 
-## Security Checks — Baseline Templates
+## Security Checks — Reference Sets (Security Templates)
 
-Navigate to **Baseline Templates** in the MSSP sidebar section. This is a read-only security assessment layer based on [Maester](https://maester.dev) and CISA SCuBA guidance.
+Navigate to **Reference Sets** (Security Templates) in the MSSP sidebar. Reference Sets are curated JSON reference templates (for example, Zero Trust Assessment V2 and community contributions) stored in `backend/data/reference-templates` and evaluated in a read-only, assessment-only view.
 
 Security checks run independently of tenant baselines and do not modify any configuration.
 
+> **Note:** As of v1.1, Security Templates support only single-tenant selection. Multi-tenant selection is no longer available.
+
 ### Running checks
 
-1. Tick the tenants to assess
-2. Click **Run Security Checks**
-3. Results appear per tenant per check — Pass / Fail / Unavailable
+1. Select a tenant to assess.
+2. Choose a specific owner or leave the owner as **All** to include all available reference sets.
+3. Click **Run Reference Checks**. Results are returned for the selected tenant and summarized in the UI.
+
+Key notes:
+- The Security Templates view aggregates available owners and excludes the `openintune` owner/templates from this view by default.
+- Use **Reload sets** to refresh templates from disk (backend reload endpoint).
+- The owner summary cards show Matched / Not matched / Total counts for the tenant you selected. Hover the info icon for details.
+- Use the **Export failing (CSV)** or **Export failing (JSON)** buttons to download failing reference items. Exports use current results from **Run Reference Checks** or the aggregated owner summary and do not perform live checks themselves.
 
 | Group | Checks |
 |---|---|
@@ -255,7 +275,7 @@ Security checks run independently of tenant baselines and do not modify any conf
 | Admin Account Protection | Compliant device required for admins · Global Admin count |
 | Conditional Access Hygiene | No report-only policies · No permanently disabled policies |
 
-Results reference the relevant Maester and CISA SCuBA identifiers for traceability. Checks that require a permission not yet granted show as **Unavailable** rather than failing.
+Results reference owner identifiers for traceability. Checks that require missing permissions show as **Unavailable** rather than failing.
 
 ---
 
@@ -456,6 +476,52 @@ Click the **✈ Test** button on any destination to send a labelled test payload
 Payload format is JSON — compatible with Microsoft Teams Workflows incoming webhooks, Slack, and PagerDuty out of the box.
 
 See [Guide 12 — Webhook notifications](guides/12-webhook-notifications.md) for payload schema and integration examples.
+
+---
+
+## Log Analytics and Sentinel
+
+Navigate to **MSSP Settings** -> **Log Analytics and Sentinel** to configure SIEM export.
+
+### Configuration fields
+
+| Field | Purpose |
+|---|---|
+| Enable Log Analytics export | Master switch for direct telemetry ingestion |
+| Workspace ID | Target Log Analytics workspace identifier |
+| Shared key | Workspace key used for Data Collector API signing |
+| Table prefix | Prefix for custom tables (default `TrustM365`) |
+| Schema version | Event contract version tag for downstream rules |
+| Ingestion categories | Per-category cost controls |
+
+### Ingestion categories
+
+- Drift lifecycle
+- Remediation and restore outcomes
+- Job and scheduler health
+- Webhook delivery outcomes
+- API request logs (high volume)
+
+Use **Test Connection** before saving to confirm ingestion credentials and routing.
+
+### Resulting tables
+
+With default prefix, records land in:
+
+- `TrustM365Drift_CL`
+- `TrustM365Restore_CL`
+- `TrustM365Jobs_CL`
+- `TrustM365Webhooks_CL`
+- `TrustM365Api_CL`
+
+### Sentinel onboarding
+
+1. Validate assets with `npm run sentinel:validate`.
+2. Deploy analytic rules with `npm run sentinel:deploy -- -SubscriptionId <subId> -ResourceGroup <rg> -WorkspaceName <workspace> -TablePrefix TrustM365`.
+3. Import workbook JSON from `data/sentinel/workbooks/TrustM365-Drift-Monthly.workbook.json`.
+4. Trigger drift events in TrustM365 and verify incidents/workbook data in Sentinel.
+
+See [Guide 21 — Log Analytics and Sentinel](guides/21-log-analytics-and-sentinel.md), [Guide 22 — Sentinel content pack operations](guides/22-sentinel-content-pack-operations.md), and [Sentinel integration reference](integrations/sentinel-log-analytics.md) for details.
 
 ---
 

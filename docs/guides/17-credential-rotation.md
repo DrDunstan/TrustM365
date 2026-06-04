@@ -2,6 +2,10 @@
 
 App Registration client secrets expire. When one expires, TrustM365 can no longer authenticate with Microsoft Graph — all syncs fail silently, and drift monitoring stops. This guide explains how to rotate the secret without losing any data.
 
+![App Registrations secret update workflow](./visuals/guide-app-registrations.png)
+
+_Visual reference: App Registration edit panel with client secret update field._
+
 ---
 
 ## When rotation is needed

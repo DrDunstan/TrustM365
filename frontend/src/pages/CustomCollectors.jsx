@@ -441,21 +441,7 @@ function CollectorCard({ collector, tenants, onUpdated, onDeleted, showToast }) 
       {expanded && (
         <div className="border-t border-gray-800 px-4 py-4 space-y-4">
 
-          {/* Monitored fields */}
-          {watchableKeys.length > 0 && (
-            <div>
-              <p className="text-xs text-gray-500 font-medium uppercase tracking-wider mb-2">Monitored Fields</p>
-              <div className="flex flex-wrap gap-1.5">
-                {watchableKeys.map(k => (
-                  <span key={k.path} className="flex items-center gap-1.5 text-xs bg-gray-800 border border-gray-700 text-gray-300 px-2 py-1 rounded-lg">
-                    <code className="text-gray-400 font-mono text-xs">{k.path}</code>
-                    <span className="text-gray-500">{k.label !== k.path ? `· ${k.label}` : ''}</span>
-                    <TypeChip type={k.type}/>
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
+          {/* Monitored fields listing removed (frontend-only) */}
 
           {/* Tenant deployment */}
           <div>

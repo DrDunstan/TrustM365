@@ -1,0 +1,1296 @@
+{
+  "generatedAt": "2026-04-17T05:53:36.091Z",
+  "templates": [
+    {
+      "id": "cisa-aad-v1",
+      "file": "cisa-aad-v1.json",
+      "watched_keys": [
+        {
+          "path": "grantControls.builtInControls",
+          "current": "includes",
+          "types": [
+            "undefined",
+            "array"
+          ],
+          "samples": [
+            {
+              "example": "cisa-ca-block-legacy-auth"
+            },
+            {
+              "example": "cisa-ca-mfa-all",
+              "sample": [
+                "mfa"
+              ]
+            }
+          ],
+          "recommendation": "includes",
+          "reason": "path resolves to arrays in reference resources; use `includes` for membership checks"
+        },
+        {
+          "path": "grantControls.authenticationStrength",
+          "current": "existsNonEmpty",
+          "types": [
+            "undefined",
+            "object"
+          ],
+          "samples": [
+            {
+              "example": "cisa-ca-block-legacy-auth"
+            },
+            {
+              "example": "cisa-ca-phish-resistant-mfa",
+              "sample": {
+                "isConfigured": true
+              }
+            }
+          ],
+          "recommendation": "exists",
+          "reason": "path resolves to objects; consider refining to a primitive subpath or use `exists` to check presence"
+        },
+        {
+          "path": "conditions.clientAppTypes",
+          "current": "includes",
+          "types": [
+            "array",
+            "undefined"
+          ],
+          "samples": [
+            {
+              "example": "cisa-ca-block-legacy-auth",
+              "sample": [
+                "other"
+              ]
+            },
+            {
+              "example": "cisa-ca-mfa-all"
+            }
+          ],
+          "recommendation": "includes",
+          "reason": "path resolves to arrays in reference resources; use `includes` for membership checks"
+        },
+        {
+          "path": "conditions.signInRiskLevels",
+          "current": "existsNonEmpty",
+          "types": [
+            "undefined"
+          ],
+          "samples": [
+            {
+              "example": "cisa-ca-block-legacy-auth"
+            }
+          ],
+          "recommendation": "existsNonEmpty",
+          "reason": "path not present in any reference resource"
+        },
+        {
+          "path": "authenticationMethodConfigurations[id=Sms].state",
+          "current": "equals",
+          "types": [
+            "undefined",
+            "string"
+          ],
+          "samples": [
+            {
+              "example": "cisa-ca-block-legacy-auth"
+            },
+            {
+              "example": "cisa-auth-disable-weak-mfa",
+              "sample": "disabled"
+            }
+          ],
+          "recommendation": "equals",
+          "reason": "mixed or ambiguous types; manual review recommended"
+        },
+        {
+          "path": "authenticationMethodConfigurations[id=Voice].state",
+          "current": "equals",
+          "types": [
+            "undefined",
+            "string"
+          ],
+          "samples": [
+            {
+              "example": "cisa-ca-block-legacy-auth"
+            },
+            {
+              "example": "cisa-auth-disable-weak-mfa",
+              "sample": "disabled"
+            }
+          ],
+          "recommendation": "equals",
+          "reason": "mixed or ambiguous types; manual review recommended"
+        },
+        {
+          "path": "authenticationMethodConfigurations[id=Fido2].state",
+          "current": "equals",
+          "types": [
+            "undefined"
+          ],
+          "samples": [
+            {
+              "example": "cisa-ca-block-legacy-auth"
+            }
+          ],
+          "recommendation": "equals",
+          "reason": "path not present in any reference resource"
+        },
+        {
+          "path": "admin_consent_policy.isEnabled",
+          "current": "equals",
+          "types": [
+            "undefined"
+          ],
+          "samples": [
+            {
+              "example": "cisa-ca-block-legacy-auth"
+            }
+          ],
+          "recommendation": "equals",
+          "reason": "path not present in any reference resource"
+        },
+        {
+          "path": "security_defaults.isEnabled",
+          "current": "equals",
+          "types": [
+            "undefined"
+          ],
+          "samples": [
+            {
+              "example": "cisa-ca-block-legacy-auth"
+            }
+          ],
+          "recommendation": "equals",
+          "reason": "path not present in any reference resource"
+        }
+      ],
+      "resource_hints": [
+        {
+          "resourceId": "cisa-ca-block-legacy-auth",
+          "displayName": "Block legacy authentication",
+          "hasTestId": false,
+          "testId": null,
+          "relevantWatchedKeys": [
+            "conditions.clientAppTypes"
+          ],
+          "matchedPathsExamples": [
+            {
+              "path": "conditions.clientAppTypes",
+              "expected": [
+                "other"
+              ]
+            }
+          ]
+        },
+        {
+          "resourceId": "cisa-ca-mfa-all",
+          "displayName": "Require MFA for all users",
+          "hasTestId": false,
+          "testId": null,
+          "relevantWatchedKeys": [
+            "grantControls.builtInControls"
+          ],
+          "matchedPathsExamples": [
+            {
+              "path": "grantControls.builtInControls",
+              "expected": [
+                "mfa"
+              ]
+            }
+          ]
+        },
+        {
+          "resourceId": "cisa-ca-phish-resistant-mfa",
+          "displayName": "Require phishing-resistant MFA",
+          "hasTestId": false,
+          "testId": null,
+          "relevantWatchedKeys": [
+            "grantControls.authenticationStrength"
+          ],
+          "matchedPathsExamples": [
+            {
+              "path": "grantControls.authenticationStrength",
+              "expected": {
+                "isConfigured": true
+              }
+            }
+          ]
+        },
+        {
+          "resourceId": "cisa-auth-disable-weak-mfa",
+          "displayName": "Disable weak MFA methods (SMS/Voice)",
+          "hasTestId": false,
+          "testId": null,
+          "relevantWatchedKeys": [
+            "authenticationMethodConfigurations[id=Sms].state",
+            "authenticationMethodConfigurations[id=Voice].state"
+          ],
+          "matchedPathsExamples": [
+            {
+              "path": "authenticationMethodConfigurations[id=Sms].state",
+              "expected": "disabled"
+            },
+            {
+              "path": "authenticationMethodConfigurations[id=Voice].state",
+              "expected": "disabled"
+            }
+          ]
+        },
+        {
+          "resourceId": "cisa-apps-no-expiring-creds",
+          "displayName": "No app registrations with expired or soon-expiring credentials",
+          "hasTestId": true,
+          "testId": "apps.no_expiring_credentials",
+          "relevantWatchedKeys": [],
+          "matchedPathsExamples": []
+        },
+        {
+          "resourceId": "cisa-global-admin-count",
+          "displayName": "Global Administrator count (recommended 2-8)",
+          "hasTestId": true,
+          "testId": "cisa.global_admin_count",
+          "relevantWatchedKeys": [],
+          "matchedPathsExamples": []
+        },
+        {
+          "resourceId": "cisa-no-permanent-privileged",
+          "displayName": "No permanent privileged role assignments",
+          "hasTestId": true,
+          "testId": "cisa.no_permanent_privileged",
+          "relevantWatchedKeys": [],
+          "matchedPathsExamples": []
+        }
+      ],
+      "hasServerTests": true
+    },
+    {
+      "id": "cisa-scuba-ca-v1",
+      "file": "cisa-scuba-entra-ca.json",
+      "watched_keys": [
+        {
+          "path": "grantControls.builtInControls",
+          "current": "includes",
+          "types": [
+            "array"
+          ],
+          "samples": [
+            {
+              "example": "cisa-ca-legacy-block",
+              "sample": [
+                "block"
+              ]
+            }
+          ],
+          "recommendation": "includes",
+          "reason": "path resolves to arrays in reference resources; use `includes` for membership checks"
+        },
+        {
+          "path": "state",
+          "current": "equals",
+          "types": [
+            "string"
+          ],
+          "samples": [
+            {
+              "example": "cisa-ca-legacy-block",
+              "sample": "enabled"
+            }
+          ],
+          "recommendation": "equals",
+          "reason": "primitive values in reference resources; `equals` is appropriate"
+        },
+        {
+          "path": "conditions.clientAppTypes",
+          "current": "includes",
+          "types": [
+            "array"
+          ],
+          "samples": [
+            {
+              "example": "cisa-ca-legacy-block",
+              "sample": [
+                "exchangeActiveSync",
+                "other"
+              ]
+            }
+          ],
+          "recommendation": "includes",
+          "reason": "path resolves to arrays in reference resources; use `includes` for membership checks"
+        }
+      ],
+      "resource_hints": [
+        {
+          "resourceId": "cisa-ca-legacy-block",
+          "displayName": "Block legacy auth",
+          "hasTestId": false,
+          "testId": null,
+          "relevantWatchedKeys": [
+            "grantControls.builtInControls",
+            "state",
+            "conditions.clientAppTypes"
+          ],
+          "matchedPathsExamples": [
+            {
+              "path": "grantControls.builtInControls",
+              "expected": [
+                "block"
+              ]
+            },
+            {
+              "path": "state",
+              "expected": "enabled"
+            },
+            {
+              "path": "conditions.clientAppTypes",
+              "expected": [
+                "exchangeActiveSync",
+                "other"
+              ]
+            }
+          ]
+        }
+      ],
+      "hasServerTests": false
+    },
+    {
+      "id": "maester-auth-methods-v1",
+      "file": "maester-auth-methods.json",
+      "watched_keys": [
+        {
+          "path": "authenticationMethodConfigurations[id=Sms].state",
+          "current": "equals",
+          "types": [
+            "string",
+            "undefined"
+          ],
+          "samples": [
+            {
+              "example": "maester-auth-sms-disabled",
+              "sample": "disabled"
+            },
+            {
+              "example": "maester-auth-voice-disabled"
+            }
+          ],
+          "recommendation": "equals",
+          "reason": "mixed or ambiguous types; manual review recommended"
+        },
+        {
+          "path": "authenticationMethodConfigurations[id=Voice].state",
+          "current": "equals",
+          "types": [
+            "undefined",
+            "string"
+          ],
+          "samples": [
+            {
+              "example": "maester-auth-sms-disabled"
+            },
+            {
+              "example": "maester-auth-voice-disabled",
+              "sample": "disabled"
+            }
+          ],
+          "recommendation": "equals",
+          "reason": "mixed or ambiguous types; manual review recommended"
+        },
+        {
+          "path": "authenticationMethodConfigurations[id=Fido2].state",
+          "current": "equals",
+          "types": [
+            "undefined",
+            "string"
+          ],
+          "samples": [
+            {
+              "example": "maester-auth-sms-disabled"
+            },
+            {
+              "example": "maester-auth-passwordless-enabled",
+              "sample": "enabled"
+            }
+          ],
+          "recommendation": "equals",
+          "reason": "mixed or ambiguous types; manual review recommended"
+        },
+        {
+          "path": "authenticationMethodConfigurations[id=WindowsHello].state",
+          "current": "equals",
+          "types": [
+            "undefined",
+            "string"
+          ],
+          "samples": [
+            {
+              "example": "maester-auth-sms-disabled"
+            },
+            {
+              "example": "maester-auth-passwordless-enabled",
+              "sample": "enabled"
+            }
+          ],
+          "recommendation": "equals",
+          "reason": "mixed or ambiguous types; manual review recommended"
+        },
+        {
+          "path": "authenticationMethodConfigurations[id=WindowsHelloForBusiness].state",
+          "current": "equals",
+          "types": [
+            "undefined",
+            "string"
+          ],
+          "samples": [
+            {
+              "example": "maester-auth-sms-disabled"
+            },
+            {
+              "example": "maester-auth-passwordless-enabled",
+              "sample": "enabled"
+            }
+          ],
+          "recommendation": "equals",
+          "reason": "mixed or ambiguous types; manual review recommended"
+        },
+        {
+          "path": "authenticationMethodConfigurations[id=MicrosoftAuthenticator].state",
+          "current": "equals",
+          "types": [
+            "undefined",
+            "string"
+          ],
+          "samples": [
+            {
+              "example": "maester-auth-sms-disabled"
+            },
+            {
+              "example": "maester-auth-passwordless-enabled",
+              "sample": "enabled"
+            }
+          ],
+          "recommendation": "equals",
+          "reason": "mixed or ambiguous types; manual review recommended"
+        },
+        {
+          "path": "allowInvitesFrom",
+          "current": "in",
+          "types": [
+            "undefined",
+            "array"
+          ],
+          "samples": [
+            {
+              "example": "maester-auth-sms-disabled"
+            },
+            {
+              "example": "maester-auth-guest-invite-policy",
+              "sample": [
+                "adminsAndGuestInviters",
+                "none"
+              ]
+            }
+          ],
+          "recommendation": "includes",
+          "reason": "path resolves to arrays in reference resources; use `includes` for membership checks"
+        }
+      ],
+      "resource_hints": [
+        {
+          "resourceId": "maester-auth-sms-disabled",
+          "displayName": "SMS authentication disabled",
+          "hasTestId": true,
+          "testId": "maester-auth-sms-disabled",
+          "relevantWatchedKeys": [
+            "authenticationMethodConfigurations[id=Sms].state"
+          ],
+          "matchedPathsExamples": [
+            {
+              "path": "authenticationMethodConfigurations[id=Sms].state",
+              "expected": "disabled"
+            }
+          ]
+        },
+        {
+          "resourceId": "maester-auth-voice-disabled",
+          "displayName": "Voice authentication disabled",
+          "hasTestId": true,
+          "testId": "maester-auth-voice-disabled",
+          "relevantWatchedKeys": [
+            "authenticationMethodConfigurations[id=Voice].state"
+          ],
+          "matchedPathsExamples": [
+            {
+              "path": "authenticationMethodConfigurations[id=Voice].state",
+              "expected": "disabled"
+            }
+          ]
+        },
+        {
+          "resourceId": "maester-auth-passwordless-enabled",
+          "displayName": "Phishing-resistant methods available",
+          "hasTestId": true,
+          "testId": "maester-auth-passwordless-enabled",
+          "relevantWatchedKeys": [
+            "authenticationMethodConfigurations[id=Fido2].state",
+            "authenticationMethodConfigurations[id=WindowsHello].state",
+            "authenticationMethodConfigurations[id=WindowsHelloForBusiness].state",
+            "authenticationMethodConfigurations[id=MicrosoftAuthenticator].state"
+          ],
+          "matchedPathsExamples": [
+            {
+              "path": "authenticationMethodConfigurations[id=Fido2].state",
+              "expected": "enabled"
+            },
+            {
+              "path": "authenticationMethodConfigurations[id=WindowsHello].state",
+              "expected": "enabled"
+            },
+            {
+              "path": "authenticationMethodConfigurations[id=WindowsHelloForBusiness].state",
+              "expected": "enabled"
+            },
+            {
+              "path": "authenticationMethodConfigurations[id=MicrosoftAuthenticator].state",
+              "expected": "enabled"
+            }
+          ]
+        },
+        {
+          "resourceId": "maester-auth-guest-invite-policy",
+          "displayName": "Restrict guest invitations to admins",
+          "hasTestId": true,
+          "testId": "maester-auth-guest-invite-policy",
+          "relevantWatchedKeys": [
+            "allowInvitesFrom"
+          ],
+          "matchedPathsExamples": [
+            {
+              "path": "allowInvitesFrom",
+              "expected": [
+                "adminsAndGuestInviters",
+                "none"
+              ]
+            }
+          ]
+        }
+      ],
+      "hasServerTests": true
+    },
+    {
+      "id": "maester-entra-apps-v1",
+      "file": "maester-entra-apps.json",
+      "watched_keys": [],
+      "resource_hints": [
+        {
+          "resourceId": "maester-apps-no-expiring-creds",
+          "displayName": "No app registrations with expired or soon-expiring credentials",
+          "hasTestId": true,
+          "testId": "apps.no_expiring_credentials",
+          "relevantWatchedKeys": [],
+          "matchedPathsExamples": []
+        },
+        {
+          "resourceId": "maester-apps-no-implicit-grant",
+          "displayName": "Implicit grant not enabled on app registrations",
+          "hasTestId": true,
+          "testId": "apps.implicit_grant_disabled",
+          "relevantWatchedKeys": [],
+          "matchedPathsExamples": []
+        }
+      ],
+      "hasServerTests": true
+    },
+    {
+      "id": "maester-entra-ca-v1",
+      "file": "maester-entra-ca.json",
+      "watched_keys": [
+        {
+          "path": "grantControls.builtInControls",
+          "current": "includes",
+          "types": [
+            "array",
+            "undefined"
+          ],
+          "samples": [
+            {
+              "example": "maester-ca-mfa-all",
+              "sample": [
+                "mfa"
+              ]
+            },
+            {
+              "example": "maester-ca-device-compliance",
+              "sample": [
+                "compliantDevice"
+              ]
+            },
+            {
+              "example": "maester-ca-all-apps"
+            },
+            {
+              "example": "maester-admin-compliant-device",
+              "sample": [
+                "compliantDevice",
+                "domainJoinedDevice"
+              ]
+            }
+          ],
+          "recommendation": "includes",
+          "reason": "path resolves to arrays in reference resources; use `includes` for membership checks"
+        },
+        {
+          "path": "grantControls.authenticationStrength",
+          "current": "existsNonEmpty",
+          "types": [
+            "undefined"
+          ],
+          "samples": [
+            {
+              "example": "maester-ca-mfa-all"
+            }
+          ],
+          "recommendation": "existsNonEmpty",
+          "reason": "path not present in any reference resource"
+        },
+        {
+          "path": "state",
+          "current": "equals",
+          "types": [
+            "string",
+            "undefined"
+          ],
+          "samples": [
+            {
+              "example": "maester-ca-mfa-all",
+              "sample": "enabled"
+            },
+            {
+              "example": "maester-ca-no-report-only"
+            }
+          ],
+          "recommendation": "equals",
+          "reason": "mixed or ambiguous types; manual review recommended"
+        },
+        {
+          "path": "conditions.users.includeUsers",
+          "current": "includes",
+          "types": [
+            "array",
+            "undefined"
+          ],
+          "samples": [
+            {
+              "example": "maester-ca-mfa-all",
+              "sample": [
+                "All"
+              ]
+            },
+            {
+              "example": "maester-ca-device-compliance"
+            }
+          ],
+          "recommendation": "includes",
+          "reason": "path resolves to arrays in reference resources; use `includes` for membership checks"
+        },
+        {
+          "path": "conditions.applications.includeApplications",
+          "current": "includes",
+          "types": [
+            "undefined",
+            "array"
+          ],
+          "samples": [
+            {
+              "example": "maester-ca-mfa-all"
+            },
+            {
+              "example": "maester-ca-all-apps",
+              "sample": [
+                "All"
+              ]
+            }
+          ],
+          "recommendation": "includes",
+          "reason": "path resolves to arrays in reference resources; use `includes` for membership checks"
+        },
+        {
+          "path": "conditions.signInRiskLevels",
+          "current": "existsNonEmpty",
+          "types": [
+            "undefined"
+          ],
+          "samples": [
+            {
+              "example": "maester-ca-mfa-all"
+            }
+          ],
+          "recommendation": "existsNonEmpty",
+          "reason": "path not present in any reference resource"
+        },
+        {
+          "path": "conditions.clientAppTypes",
+          "current": "includes",
+          "types": [
+            "undefined",
+            "array"
+          ],
+          "samples": [
+            {
+              "example": "maester-ca-mfa-all"
+            },
+            {
+              "example": "maester-ca-block-legacy-other",
+              "sample": [
+                "other"
+              ]
+            },
+            {
+              "example": "maester-ca-block-legacy-exchange-activesync",
+              "sample": [
+                "exchangeActiveSync"
+              ]
+            }
+          ],
+          "recommendation": "includes",
+          "reason": "path resolves to arrays in reference resources; use `includes` for membership checks"
+        },
+        {
+          "path": "conditions.platforms.includePlatforms",
+          "current": "includes",
+          "types": [
+            "undefined"
+          ],
+          "samples": [
+            {
+              "example": "maester-ca-mfa-all"
+            }
+          ],
+          "recommendation": "includes",
+          "reason": "path not present in any reference resource"
+        },
+        {
+          "path": "sessionControls.applicationEnforcedRestrictions",
+          "current": "existsNonEmpty",
+          "types": [
+            "undefined",
+            "boolean"
+          ],
+          "samples": [
+            {
+              "example": "maester-ca-mfa-all"
+            },
+            {
+              "example": "maester-ca-application-enforced-restrictions",
+              "sample": true
+            }
+          ],
+          "recommendation": "existsNonEmpty",
+          "reason": "mixed or ambiguous types; manual review recommended"
+        },
+        {
+          "path": "sessionControls.persistentBrowserSession",
+          "current": "existsNonEmpty",
+          "types": [
+            "undefined",
+            "boolean"
+          ],
+          "samples": [
+            {
+              "example": "maester-ca-mfa-all"
+            },
+            {
+              "example": "maester-ca-nonpersistent-browser-session",
+              "sample": true
+            }
+          ],
+          "recommendation": "existsNonEmpty",
+          "reason": "mixed or ambiguous types; manual review recommended"
+        },
+        {
+          "path": "conditions.users.includeGuestsOrExternalUsers",
+          "current": "equals",
+          "types": [
+            "undefined",
+            "boolean"
+          ],
+          "samples": [
+            {
+              "example": "maester-ca-mfa-all"
+            },
+            {
+              "example": "maester-ca-guest-mfa",
+              "sample": true
+            }
+          ],
+          "recommendation": "equals",
+          "reason": "mixed or ambiguous types; manual review recommended"
+        },
+        {
+          "path": "conditions.users.includeRoles",
+          "current": "existsNonEmpty",
+          "types": [
+            "undefined",
+            "array"
+          ],
+          "samples": [
+            {
+              "example": "maester-ca-mfa-all"
+            },
+            {
+              "example": "maester-admin-compliant-device",
+              "sample": [
+                "Global Administrator",
+                "Privileged Role Administrator"
+              ]
+            }
+          ],
+          "recommendation": "includes",
+          "reason": "path resolves to arrays in reference resources; use `includes` for membership checks"
+        }
+      ],
+      "resource_hints": [
+        {
+          "resourceId": "maester-ca-mfa-all",
+          "displayName": "Require MFA for all users",
+          "hasTestId": true,
+          "testId": "maester-ca-mfa-all",
+          "relevantWatchedKeys": [
+            "grantControls.builtInControls",
+            "state",
+            "conditions.users.includeUsers"
+          ],
+          "matchedPathsExamples": [
+            {
+              "path": "grantControls.builtInControls",
+              "expected": [
+                "mfa"
+              ]
+            },
+            {
+              "path": "state",
+              "expected": "enabled"
+            },
+            {
+              "path": "conditions.users.includeUsers",
+              "expected": [
+                "All"
+              ]
+            }
+          ]
+        },
+        {
+          "resourceId": "maester-ca-device-compliance",
+          "displayName": "Require device compliance",
+          "hasTestId": true,
+          "testId": "maester-ca-device-compliance",
+          "relevantWatchedKeys": [
+            "grantControls.builtInControls",
+            "state"
+          ],
+          "matchedPathsExamples": [
+            {
+              "path": "grantControls.builtInControls",
+              "expected": [
+                "compliantDevice"
+              ]
+            },
+            {
+              "path": "state",
+              "expected": "enabled"
+            }
+          ]
+        },
+        {
+          "resourceId": "maester-ca-all-apps",
+          "displayName": "Conditional Access targeting All Apps",
+          "hasTestId": true,
+          "testId": "maester-ca-all-apps",
+          "relevantWatchedKeys": [
+            "state",
+            "conditions.applications.includeApplications"
+          ],
+          "matchedPathsExamples": [
+            {
+              "path": "state",
+              "expected": "enabled"
+            },
+            {
+              "path": "conditions.applications.includeApplications",
+              "expected": [
+                "All"
+              ]
+            }
+          ]
+        },
+        {
+          "resourceId": "maester-ca-all-apps-all-users",
+          "displayName": "Conditional Access for All Apps and All Users",
+          "hasTestId": true,
+          "testId": "maester-ca-all-apps-all-users",
+          "relevantWatchedKeys": [
+            "state",
+            "conditions.users.includeUsers",
+            "conditions.applications.includeApplications"
+          ],
+          "matchedPathsExamples": [
+            {
+              "path": "state",
+              "expected": "enabled"
+            },
+            {
+              "path": "conditions.users.includeUsers",
+              "expected": [
+                "All"
+              ]
+            },
+            {
+              "path": "conditions.applications.includeApplications",
+              "expected": [
+                "All"
+              ]
+            }
+          ]
+        },
+        {
+          "resourceId": "maester-ca-guest-mfa",
+          "displayName": "Require MFA for guest users",
+          "hasTestId": true,
+          "testId": "maester-ca-guest-mfa",
+          "relevantWatchedKeys": [
+            "grantControls.builtInControls",
+            "state",
+            "conditions.users.includeGuestsOrExternalUsers"
+          ],
+          "matchedPathsExamples": [
+            {
+              "path": "grantControls.builtInControls",
+              "expected": [
+                "mfa"
+              ]
+            },
+            {
+              "path": "state",
+              "expected": "enabled"
+            },
+            {
+              "path": "conditions.users.includeGuestsOrExternalUsers",
+              "expected": true
+            }
+          ]
+        },
+        {
+          "resourceId": "maester-admin-compliant-device",
+          "displayName": "Require compliant or domain-joined device for admins",
+          "hasTestId": true,
+          "testId": "maester-admin-compliant-device",
+          "relevantWatchedKeys": [
+            "grantControls.builtInControls",
+            "state",
+            "conditions.users.includeRoles"
+          ],
+          "matchedPathsExamples": [
+            {
+              "path": "grantControls.builtInControls",
+              "expected": [
+                "compliantDevice",
+                "domainJoinedDevice"
+              ]
+            },
+            {
+              "path": "state",
+              "expected": "enabled"
+            },
+            {
+              "path": "conditions.users.includeRoles",
+              "expected": [
+                "Global Administrator",
+                "Privileged Role Administrator"
+              ]
+            }
+          ]
+        },
+        {
+          "resourceId": "maester-ca-mfa-admins",
+          "displayName": "Require MFA for privileged roles",
+          "hasTestId": true,
+          "testId": "maester-ca-mfa-admins",
+          "relevantWatchedKeys": [
+            "grantControls.builtInControls",
+            "state",
+            "conditions.users.includeRoles"
+          ],
+          "matchedPathsExamples": [
+            {
+              "path": "grantControls.builtInControls",
+              "expected": [
+                "mfa"
+              ]
+            },
+            {
+              "path": "state",
+              "expected": "enabled"
+            },
+            {
+              "path": "conditions.users.includeRoles",
+              "expected": [
+                "Global Administrator",
+                "Privileged Role Administrator"
+              ]
+            }
+          ]
+        },
+        {
+          "resourceId": "maester-ca-block-legacy-other",
+          "displayName": "Block legacy authentication (other client apps)",
+          "hasTestId": true,
+          "testId": "maester-ca-block-legacy-other",
+          "relevantWatchedKeys": [
+            "state",
+            "conditions.clientAppTypes"
+          ],
+          "matchedPathsExamples": [
+            {
+              "path": "state",
+              "expected": "enabled"
+            },
+            {
+              "path": "conditions.clientAppTypes",
+              "expected": [
+                "other"
+              ]
+            }
+          ]
+        },
+        {
+          "resourceId": "maester-ca-block-legacy-exchange-activesync",
+          "displayName": "Block legacy authentication for Exchange ActiveSync",
+          "hasTestId": true,
+          "testId": "maester-ca-block-legacy-exchange-activesync",
+          "relevantWatchedKeys": [
+            "state",
+            "conditions.clientAppTypes"
+          ],
+          "matchedPathsExamples": [
+            {
+              "path": "state",
+              "expected": "enabled"
+            },
+            {
+              "path": "conditions.clientAppTypes",
+              "expected": [
+                "exchangeActiveSync"
+              ]
+            }
+          ]
+        },
+        {
+          "resourceId": "maester-ca-application-enforced-restrictions",
+          "displayName": "Application enforced restrictions enabled",
+          "hasTestId": true,
+          "testId": "maester-ca-application-enforced-restrictions",
+          "relevantWatchedKeys": [
+            "state",
+            "sessionControls.applicationEnforcedRestrictions"
+          ],
+          "matchedPathsExamples": [
+            {
+              "path": "state",
+              "expected": "enabled"
+            },
+            {
+              "path": "sessionControls.applicationEnforcedRestrictions",
+              "expected": true
+            }
+          ]
+        },
+        {
+          "resourceId": "maester-ca-nonpersistent-browser-session",
+          "displayName": "Non-persistent browser session enforced for non-corporate devices",
+          "hasTestId": true,
+          "testId": "maester-ca-nonpersistent-browser-session",
+          "relevantWatchedKeys": [
+            "state",
+            "sessionControls.persistentBrowserSession"
+          ],
+          "matchedPathsExamples": [
+            {
+              "path": "state",
+              "expected": "enabled"
+            },
+            {
+              "path": "sessionControls.persistentBrowserSession",
+              "expected": true
+            }
+          ]
+        },
+        {
+          "resourceId": "maester-ca-no-report-only",
+          "displayName": "No CA policies in report-only mode",
+          "hasTestId": true,
+          "testId": "ca.no_report_only",
+          "relevantWatchedKeys": [],
+          "matchedPathsExamples": []
+        },
+        {
+          "resourceId": "maester-ca-no-disabled",
+          "displayName": "No CA policies permanently disabled",
+          "hasTestId": true,
+          "testId": "ca.no_disabled_policies",
+          "relevantWatchedKeys": [],
+          "matchedPathsExamples": []
+        },
+        {
+          "resourceId": "maester-ca-exclude-emergency",
+          "displayName": "Enabled CA policies include emergency/break-glass exclusions",
+          "hasTestId": true,
+          "testId": "ca.policies_have_exclusions",
+          "relevantWatchedKeys": [],
+          "matchedPathsExamples": []
+        },
+        {
+          "resourceId": "maester-ca-excluded-groups-fallback",
+          "displayName": "Excluded groups should have fallback includes in other policies",
+          "hasTestId": true,
+          "testId": "ca.excluded_groups_have_fallback",
+          "relevantWatchedKeys": [],
+          "matchedPathsExamples": []
+        }
+      ],
+      "hasServerTests": true
+    },
+    {
+      "id": "maester-entra-roles-v1",
+      "file": "maester-entra-roles.json",
+      "watched_keys": [],
+      "resource_hints": [
+        {
+          "resourceId": "maester-global-admin-count",
+          "displayName": "Global Administrator count within range",
+          "hasTestId": true,
+          "testId": "admin.global_admin_count",
+          "relevantWatchedKeys": [],
+          "matchedPathsExamples": []
+        },
+        {
+          "resourceId": "maester-pim-no-permanent-privileged",
+          "displayName": "Privileged roles assigned permanently (prefer PIM eligible assignments)",
+          "hasTestId": true,
+          "testId": "pim.no_permanent_privileged_assignments",
+          "relevantWatchedKeys": [],
+          "matchedPathsExamples": []
+        }
+      ],
+      "hasServerTests": true
+    },
+    {
+      "id": "open-intune-compliance-v3.3",
+      "file": "open-intune-baseline-intune_compliance.json",
+      "watched_keys": [
+        {
+          "path": "passwordRequired",
+          "current": "equals",
+          "types": [
+            "boolean"
+          ],
+          "samples": [
+            {
+              "example": "policy-example-1",
+              "sample": true
+            }
+          ],
+          "recommendation": "equals",
+          "reason": "primitive values in reference resources; `equals` is appropriate"
+        },
+        {
+          "path": "bitLockerEnabled",
+          "current": "equals",
+          "types": [
+            "boolean"
+          ],
+          "samples": [
+            {
+              "example": "policy-example-1",
+              "sample": true
+            },
+            {
+              "example": "policy-example-2",
+              "sample": false
+            }
+          ],
+          "recommendation": "equals",
+          "reason": "primitive values in reference resources; `equals` is appropriate"
+        },
+        {
+          "path": "tpmRequired",
+          "current": "equals",
+          "types": [
+            "boolean"
+          ],
+          "samples": [
+            {
+              "example": "policy-example-1",
+              "sample": true
+            },
+            {
+              "example": "policy-example-2",
+              "sample": false
+            }
+          ],
+          "recommendation": "equals",
+          "reason": "primitive values in reference resources; `equals` is appropriate"
+        }
+      ],
+      "resource_hints": [
+        {
+          "resourceId": "policy-example-1",
+          "displayName": "Require Device Password",
+          "hasTestId": false,
+          "testId": null,
+          "relevantWatchedKeys": [
+            "passwordRequired",
+            "bitLockerEnabled",
+            "tpmRequired"
+          ],
+          "matchedPathsExamples": [
+            {
+              "path": "passwordRequired",
+              "expected": true
+            },
+            {
+              "path": "bitLockerEnabled",
+              "expected": true
+            },
+            {
+              "path": "tpmRequired",
+              "expected": true
+            }
+          ]
+        },
+        {
+          "resourceId": "policy-example-2",
+          "displayName": "Block Jailbroken Devices",
+          "hasTestId": false,
+          "testId": null,
+          "relevantWatchedKeys": [
+            "passwordRequired",
+            "bitLockerEnabled",
+            "tpmRequired"
+          ],
+          "matchedPathsExamples": [
+            {
+              "path": "passwordRequired",
+              "expected": true
+            },
+            {
+              "path": "bitLockerEnabled",
+              "expected": false
+            },
+            {
+              "path": "tpmRequired",
+              "expected": false
+            }
+          ]
+        }
+      ],
+      "hasServerTests": false
+    }
+  ]
+}

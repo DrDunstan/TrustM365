@@ -18,7 +18,7 @@ const express  = require('express');
 const { v4: uuidv4 } = require('uuid');
 const { getDb }      = require('../database/init');
 const { getAccessToken } = require('../services/auth');
-const { decrypt }    = require('../utils/encryption');
+const { resolveTenantAuthContext } = require('../services/tenantAuth');
 const { graphGetAll, graphGet } = require('../services/graph');
 const logger   = require('../utils/logger');
 const router   = express.Router();
@@ -166,8 +166,8 @@ router.post('/test-pull', async (req, res) => {
   if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
 
   try {
-    const secret = decrypt(tenant.client_secret_encrypted);
-    const token  = await getAccessToken(tenant.tenant_id, tenant.client_id, secret);
+    const authCtx = resolveTenantAuthContext(tenant.id);
+    const token  = await getAccessToken(authCtx.authorityTenantId, authCtx.clientId, authCtx.clientSecret);
 
     const endpoint = select_fields?.trim()
       ? `${graph_endpoint}?$select=${select_fields}`

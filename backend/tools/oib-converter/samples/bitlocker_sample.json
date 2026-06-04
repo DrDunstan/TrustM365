@@ -1,0 +1,16 @@
+{
+  "name": "Win - OIB - ES - Encryption - D - BitLocker (OS Disk) - v3.7",
+  "description": "BitLocker OS disk settings",
+  "profileType": "Settings catalog",
+  "category": "Disk encryption",
+  "policyType": "BitLocker",
+  "platformSupported": "Windows 10 and later",
+  "created": "2023-08-09",
+  "lastModified": "2025-08-13",
+  "settings": [
+    { "name": "Select the encryption method for operating system drives", "value": "XTS-AES 256-bit" },
+    { "name": "Require Device Encryption", "value": "Enabled" },
+    { "name": "Configure TPM startup", "value": "Require TPM" },
+    { "name": "Allow BitLocker without a compatible TPM (requires a password or a startup key on a USB flash drive)", "value": "False" }
+  ]
+}

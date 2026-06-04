@@ -1,0 +1,14 @@
+{
+  "name": "Win - OIB - ES - Defender Antivirus - D - AV Configuration - v3.3",
+  "description": "Core Defender AV configuration",
+  "profileType": "Settings catalog",
+  "category": "Antivirus",
+  "policyType": "Microsoft Defender Antivirus",
+  "platformSupported": "Windows 10 and later",
+  "settings": [
+    { "name": "Allow Cloud Protection", "value": "Allowed" },
+    { "name": "Enable Network Protection", "value": "Enabled" },
+    { "name": "Pua Protection", "value": "Enabled" },
+    { "name": "Cloud Block Level", "value": "notConfigured" }
+  ]
+}

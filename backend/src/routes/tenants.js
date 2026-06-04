@@ -3,11 +3,13 @@ const { v4: uuidv4 } = require('uuid');
 const { z } = require('zod');
 const { getDb } = require('../database/init');
 const { encrypt, decrypt } = require('../utils/encryption');
-const { getAccessToken, evictClient } = require('../services/auth');
+const { getAccessToken, evictClientsByClientId } = require('../services/auth');
 const { getAllCollectors, COLLECTORS } = require('../collectors');
 const { fetchTenantOverview, fetchTenantInsights } = require('../collectors/overview');
 const { checkGrantedPermissions, buildAreaPermissionMap } = require('../services/permissions');
+const { persistPermissionState } = require('../services/permissionState');
 const { createSyncJob, runSync } = require('../engine/sync');
+const { rotateTenantAuthSecret, resolveTenantAuthContext } = require('../services/tenantAuth');
 const logger = require('../utils/logger');
 const router = express.Router();
 
@@ -18,6 +20,29 @@ const TenantSchema = z.object({
   clientSecret: z.string().min(1)
 });
 
+const TenantWithAppSchema = z.object({
+  displayName: z.string().min(1).max(100),
+  tenantId: z.string().uuid(),
+  appRegistrationId: z.string().uuid(),
+  authorityTenantId: z.string().uuid().optional(),
+});
+
+const CheckPermissionsWithAppSchema = z.object({
+  tenantId: z.string().uuid(),
+  appRegistrationId: z.string().uuid(),
+  authorityTenantId: z.string().uuid().optional(),
+});
+
+function parseMetadata(meta) {
+  if (!meta) return {};
+  try { return JSON.parse(meta); } catch { return {}; }
+}
+
+function getDefaultAuthorityFromApp(app) {
+  const meta = parseMetadata(app.metadata);
+  return meta.defaultAuthorityTenantId || null;
+}
+
 // In-memory caches — populated by /overview/refresh and /insights POST
 // Declared here so portfolio route can read them without hoisting issues
 const overviewCache  = new Map(); // tenantId → overview data
@@ -27,7 +52,7 @@ const insightsCache  = new Map(); // tenantId → insights data
 router.get('/', (req, res) => {
   const db = getDb();
   const tenants = db.prepare(`
-    SELECT t.id, t.display_name, t.tenant_id, t.client_id,
+    SELECT t.id, t.display_name, t.tenant_id, t.client_id, t.app_registration_id,
            t.last_synced_at, t.created_at, t.drift_check_auto, t.drift_interval_minutes,
            t.permissions_json, t.permissions_checked_at,
            t.last_sync_error, t.last_sync_error_at,
@@ -58,8 +83,17 @@ router.post('/', async (req, res) => {
   }
 
   const id = uuidv4();
-  db.prepare('INSERT INTO tenants (id,display_name,tenant_id,client_id,client_secret_encrypted) VALUES (?,?,?,?,?)')
-    .run(id, displayName, tenantId, clientId, encrypt(clientSecret));
+  const appRegistrationId = uuidv4();
+  const encryptedSecret = encrypt(clientSecret);
+
+  db.prepare('INSERT INTO app_registrations (id, display_name, client_id, client_secret_encrypted) VALUES (?,?,?,?)')
+    .run(appRegistrationId, `${displayName} App Registration`, clientId, encryptedSecret);
+
+  db.prepare('INSERT INTO tenants (id,display_name,tenant_id,client_id,client_secret_encrypted,app_registration_id) VALUES (?,?,?,?,?,?)')
+    .run(id, displayName, tenantId, clientId, encryptedSecret, appRegistrationId);
+
+  db.prepare('INSERT INTO tenant_app_bindings (id, tenant_id, app_registration_id, authority_tenant_id, is_primary) VALUES (?,?,?,?,1)')
+    .run(uuidv4(), id, appRegistrationId, tenantId);
 
   // Initialise meta row
   db.prepare('INSERT INTO tenant_meta (tenant_id) VALUES (?)').run(id);
@@ -77,8 +111,7 @@ router.post('/', async (req, res) => {
     const regToken = await getAccessToken(tenantId, clientId, clientSecret);
     const { granted } = await checkGrantedPermissions(regToken, clientId, tenantId);
     const areas = buildAreaPermissionMap(granted, COLLECTORS);
-    db.prepare("UPDATE tenants SET permissions_json = ?, permissions_checked_at = datetime('now') WHERE id = ?")
-      .run(JSON.stringify({ granted, areas }), id);
+    persistPermissionState(id, granted, areas);
     logger.info({ tenantId, clientId }, 'Initial permission check stored on registration');
   } catch (permErr) {
     // Non-fatal — permissions will be checked on first sync
@@ -88,7 +121,7 @@ router.post('/', async (req, res) => {
   // Return the full tenant row including permissions_json so the frontend
   // has the correct per-tenant permission state immediately after registration
   const tenant = db.prepare(`
-    SELECT t.id, t.display_name, t.tenant_id, t.client_id,
+    SELECT t.id, t.display_name, t.tenant_id, t.client_id, t.app_registration_id,
            t.last_synced_at, t.created_at, t.permissions_json, t.permissions_checked_at,
            COALESCE(m.notes, '') as notes,
            COALESCE(m.tags, '[]') as tags
@@ -99,13 +132,94 @@ router.post('/', async (req, res) => {
   res.status(201).json({ ...tenant, tags: JSON.parse(tenant.tags || '[]') });
 });
 
+// ── Check permissions using existing app registration ────────────────────────
+router.post('/check-permissions-with-app', async (req, res) => {
+  const parsed = CheckPermissionsWithAppSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
+  const { tenantId, appRegistrationId, authorityTenantId } = parsed.data;
+
+  const db = getDb();
+  const app = db.prepare('SELECT * FROM app_registrations WHERE id = ?').get(appRegistrationId);
+  if (!app) return res.status(404).json({ error: 'App registration not found' });
+
+  const authority = authorityTenantId || getDefaultAuthorityFromApp(app) || tenantId;
+
+  try {
+    const token = await getAccessToken(authority, app.client_id, decrypt(app.client_secret_encrypted));
+    const { granted } = await checkGrantedPermissions(token, app.client_id, authority);
+    const areas = buildAreaPermissionMap(granted, COLLECTORS);
+    res.json({ granted, areas, authorityTenantId: authority });
+  } catch (err) {
+    logger.warn({ err, authority, appRegistrationId }, 'Permission check with app registration failed');
+    res.status(400).json({ error: 'Credential validation failed', message: err.message });
+  }
+});
+
+// ── Register tenant using an existing shared app registration ────────────────
+router.post('/with-app', async (req, res) => {
+  const parsed = TenantWithAppSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
+
+  const { displayName, tenantId, appRegistrationId, authorityTenantId } = parsed.data;
+  const db = getDb();
+
+  if (db.prepare('SELECT id FROM tenants WHERE tenant_id = ?').get(tenantId)) {
+    return res.status(409).json({ error: 'Tenant already registered' });
+  }
+
+  const app = db.prepare('SELECT * FROM app_registrations WHERE id = ?').get(appRegistrationId);
+  if (!app) return res.status(404).json({ error: 'App registration not found' });
+
+  const authority = authorityTenantId || getDefaultAuthorityFromApp(app) || tenantId;
+
+  let granted = [];
+  let areas = [];
+  try {
+    const token = await getAccessToken(authority, app.client_id, decrypt(app.client_secret_encrypted));
+    const permissionState = await checkGrantedPermissions(token, app.client_id, authority);
+    granted = permissionState.granted || [];
+    areas = buildAreaPermissionMap(granted, COLLECTORS);
+  } catch (err) {
+    return res.status(400).json({ error: 'Credential validation failed', message: err.message });
+  }
+
+  const id = uuidv4();
+  db.prepare('INSERT INTO tenants (id,display_name,tenant_id,client_id,client_secret_encrypted,app_registration_id) VALUES (?,?,?,?,?,?)')
+    .run(id, displayName, tenantId, app.client_id, app.client_secret_encrypted, app.id);
+
+  db.prepare('INSERT INTO tenant_app_bindings (id, tenant_id, app_registration_id, authority_tenant_id, is_primary) VALUES (?,?,?,?,1)')
+    .run(uuidv4(), id, app.id, authority);
+
+  db.prepare('INSERT INTO tenant_meta (tenant_id) VALUES (?)').run(id);
+
+  for (const c of getAllCollectors()) {
+    db.prepare('INSERT OR IGNORE INTO resource_areas (id,tenant_id,area_key,display_name,description) VALUES (?,?,?,?,?)')
+      .run(uuidv4(), id, c.areaKey, c.displayName, c.description);
+  }
+
+  persistPermissionState(id, granted, areas);
+
+  const tenant = db.prepare(`
+    SELECT t.id, t.display_name, t.tenant_id, t.client_id, t.app_registration_id,
+           t.last_synced_at, t.created_at, t.permissions_json, t.permissions_checked_at,
+           COALESCE(m.notes, '') as notes,
+           COALESCE(m.tags, '[]') as tags
+    FROM tenants t
+    LEFT JOIN tenant_meta m ON m.tenant_id = t.id
+    WHERE t.id = ?
+  `).get(id);
+
+  res.status(201).json({ ...tenant, tags: JSON.parse(tenant.tags || '[]') });
+});
+
 // ── Delete tenant ─────────────────────────────────────────────────────────────
 router.delete('/:id', (req, res) => {
   const db = getDb();
   const t = db.prepare('SELECT * FROM tenants WHERE id = ?').get(req.params.id);
   if (!t) return res.status(404).json({ error: 'Tenant not found' });
+  const authCtx = resolveTenantAuthContext(t.id);
   db.prepare('DELETE FROM tenants WHERE id = ?').run(req.params.id);
-  evictClient(t.tenant_id, t.client_id);
+  evictClientsByClientId(authCtx.clientId);
   res.json({ message: 'Tenant removed' });
 });
 
@@ -119,19 +233,16 @@ router.patch('/:id/credentials', async (req, res) => {
   if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
 
   try {
+    const authCtx = resolveTenantAuthContext(tenant.id);
     // Validate the new secret authenticates successfully before saving
-    const token = await getAccessToken(tenant.tenant_id, tenant.client_id, clientSecret.trim());
+    const token = await getAccessToken(authCtx.authorityTenantId, authCtx.clientId, clientSecret.trim());
     if (!token) return res.status(400).json({ error: 'New credentials failed to authenticate — check the secret value' });
 
-    // Save the new encrypted secret and clear any auth error
-    db.prepare(`UPDATE tenants SET
-      client_secret_encrypted = ?,
-      last_sync_error = NULL,
-      last_sync_error_at = NULL
-      WHERE id = ?`).run(encrypt(clientSecret.trim()), tenant.id);
+    // Save the new encrypted secret to linked app registration (and legacy tenant column for compatibility).
+    rotateTenantAuthSecret(tenant.id, clientSecret.trim());
 
-    // Evict the cached MSAL client so the next sync uses the new secret
-    evictClient(tenant.tenant_id, tenant.client_id);
+    // Shared app registrations may serve multiple tenants; clear by client ID.
+    evictClientsByClientId(authCtx.clientId);
 
     logger.info({ tenantId: tenant.tenant_id }, 'Tenant credentials rotated successfully');
     res.json({ message: 'Credentials updated and validated successfully' });
@@ -410,13 +521,15 @@ router.get('/:id/permissions', async (req, res) => {
   const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(req.params.id);
   if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
   try {
-    const clientSecret = decrypt(tenant.client_secret_encrypted);
-    const token = await getAccessToken(tenant.tenant_id, tenant.client_id, clientSecret);
-    const { granted } = await checkGrantedPermissions(token, tenant.client_id, tenant.tenant_id);
+    const authCtx = resolveTenantAuthContext(tenant.id);
+    // Evict any cached MSAL client/token so newly granted admin consent
+    // is reflected immediately when re-checking permissions.
+    evictClientsByClientId(authCtx.clientId);
+    const token = await getAccessToken(authCtx.authorityTenantId, authCtx.clientId, authCtx.clientSecret);
+    const { granted } = await checkGrantedPermissions(token, authCtx.clientId, authCtx.authorityTenantId);
     const areas = buildAreaPermissionMap(granted, COLLECTORS);
     // Persist latest permission state to DB so the dashboard doesn't need to re-check on load
-    db.prepare("UPDATE tenants SET permissions_json = ?, permissions_checked_at = datetime('now') WHERE id = ?")
-      .run(JSON.stringify({ granted, areas }), tenant.id);
+    persistPermissionState(tenant.id, granted, areas);
     res.json({ granted, areas });
   } catch (err) {
     logger.error({ err }, 'Permission re-check failed');
@@ -433,12 +546,14 @@ router.post('/:id/refresh-permissions', async (req, res) => {
   const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(req.params.id);
   if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
   try {
-    const clientSecret = decrypt(tenant.client_secret_encrypted);
-    const token = await getAccessToken(tenant.tenant_id, tenant.client_id, clientSecret);
-    const { granted } = await checkGrantedPermissions(token, tenant.client_id, tenant.tenant_id);
+    const authCtx = resolveTenantAuthContext(tenant.id);
+    // Ensure we don't reuse an existing cached token from before admin consent
+    // was granted — evict the MSAL client so a fresh token is requested.
+    evictClientsByClientId(authCtx.clientId);
+    const token = await getAccessToken(authCtx.authorityTenantId, authCtx.clientId, authCtx.clientSecret);
+    const { granted } = await checkGrantedPermissions(token, authCtx.clientId, authCtx.authorityTenantId);
     const areas = buildAreaPermissionMap(granted, COLLECTORS);
-    db.prepare("UPDATE tenants SET permissions_json = ?, permissions_checked_at = datetime('now') WHERE id = ?")
-      .run(JSON.stringify({ granted, areas }), tenant.id);
+    persistPermissionState(tenant.id, granted, areas);
     // Clear any stale auth error — successful Graph call proves credentials work
     db.prepare("UPDATE tenants SET last_sync_error = NULL, last_sync_error_at = NULL WHERE id = ?")
       .run(tenant.id);
@@ -468,8 +583,8 @@ router.post('/:id/overview/refresh', async (req, res) => {
   if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
 
   try {
-    const clientSecret = decrypt(tenant.client_secret_encrypted);
-    const token = await getAccessToken(tenant.tenant_id, tenant.client_id, clientSecret);
+    const authCtx = resolveTenantAuthContext(tenant.id);
+    const token = await getAccessToken(authCtx.authorityTenantId, authCtx.clientId, authCtx.clientSecret);
     const overview = await fetchTenantOverview(token);
     overviewCache.set(req.params.id, overview);
     logger.info({ tenantId: tenant.tenant_id }, 'Tenant overview refreshed');
@@ -494,8 +609,8 @@ router.post('/:id/insights', async (req, res) => {
   const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(req.params.id);
   if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
   try {
-    const clientSecret = decrypt(tenant.client_secret_encrypted);
-    const token = await getAccessToken(tenant.tenant_id, tenant.client_id, clientSecret);
+    const authCtx = resolveTenantAuthContext(tenant.id);
+    const token = await getAccessToken(authCtx.authorityTenantId, authCtx.clientId, authCtx.clientSecret);
     const insights = await fetchTenantInsights(token);
     insightsCache.set(req.params.id, insights);
     logger.info({ tenantId: tenant.tenant_id }, 'Tenant insights refreshed');

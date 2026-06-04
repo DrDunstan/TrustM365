@@ -1,14 +1,17 @@
 import { useState, useEffect } from 'react'
 import { BrowserRouter, Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom'
 import Sidebar from './components/Sidebar.jsx'
+import ErrorBoundary from './components/ErrorBoundary.jsx'
 import HomePage from './pages/HomePage.jsx'
 import Dashboard from './pages/Dashboard.jsx'
 import AreaView from './pages/AreaView.jsx'
 import BaselineEditor from './pages/BaselineEditor.jsx'
 import AddTenant from './pages/AddTenant.jsx'
 import Portfolio from './pages/Portfolio.jsx'
-import Templates from './pages/Templates.jsx'
+import SecurityTemplates from './pages/SecurityTemplates.jsx'
+import ReferenceTemplates from './pages/ReferenceTemplates.jsx'
 import MsspSettings from './pages/MsspSettings.jsx'
+import AppRegistrations from './pages/AppRegistrations.jsx'
 import CustomCollectors from './pages/CustomCollectors.jsx'
 import Reports from './pages/Reports.jsx'
 import { tenantApi, areaApi, msspApi } from './api/client.js'
@@ -136,6 +139,7 @@ function AppShell() {
       />
 
       <main className="flex-1 overflow-y-auto">
+        <ErrorBoundary>
         <Routes>
           <Route path="/home" element={
             <HomePage tenants={tenants} areas={areas} selectedTenant={selectedTenant} setSelectedTenant={setSelectedTenant} showToast={showToast} />
@@ -146,8 +150,11 @@ function AppShell() {
               : <Navigate to="/home" replace />
           } />
           <Route path="/portfolio" element={<Portfolio navigate={navigate} setSelectedTenant={setSelectedTenant} showToast={showToast} />} />
-          <Route path="/templates" element={<Templates tenants={tenants} showToast={showToast} />} />
+          <Route path="/templates" element={<SecurityTemplates tenants={tenants} showToast={showToast} />} />
+          <Route path="/security/templates" element={<SecurityTemplates tenants={tenants} showToast={showToast} />} />
+          <Route path="/security/reference-templates" element={<ReferenceTemplates tenants={tenants} showToast={showToast} />} />
           <Route path="/mssp-settings" element={<MsspSettings showToast={showToast} />} />
+          <Route path="/mssp-settings/app-registrations" element={<AppRegistrations showToast={showToast} />} />
           <Route path="/custom-collectors" element={<CustomCollectors showToast={showToast} />} />
           <Route path="/reports" element={<Reports showToast={showToast} navigate={navigate} setSelectedTenant={setSelectedTenant} />} />
           <Route path="/area/:tenantId/:areaKey" element={<AreaView showToast={showToast} onSync={() => selectedTenant && refreshAreas(selectedTenant.id)} />} />
@@ -161,6 +168,7 @@ function AppShell() {
           } />
           <Route path="*" element={<Navigate to="/home" replace />} />
         </Routes>
+        </ErrorBoundary>
       </main>
 
       {toast && (

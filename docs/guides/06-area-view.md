@@ -2,6 +2,10 @@
 
 The Area View is the resource-level detail screen for a single configuration area. Navigate here by clicking **Manage** on an area card, or by clicking the area name in the sidebar.
 
+![Area View example](./visuals/guide-area-view.png)
+
+_Visual reference: area header actions, status badges, and resource list layout._
+
 ---
 
 ## Header
@@ -20,6 +24,9 @@ Last synced: 20/03/2026, 4:53 am
 - **Restore All (N)** — appears when there is drift and write permissions are granted
 - **Pull Live Data** — immediately pulls fresh configuration from Graph for this area only
 - **Edit Baseline** — opens the Baseline Editor
+- **Edit Baseline** — opens the Baseline Editor
+
+Note: The Area View no longer displays a per-collector "Fields captured" list in the header. To discover or select which properties are watchable for drift monitoring, open the Baseline Editor (Edit Baseline) or use the Custom Collectors Test Pull for user-defined collectors.
 
 ---
 

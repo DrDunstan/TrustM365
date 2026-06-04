@@ -4,6 +4,7 @@ const api = axios.create({ baseURL: '/api' })
 export const tenantApi = {
   list:               ()          => api.get('/tenants').then(r => r.data),
   create:             (data)      => api.post('/tenants', data).then(r => r.data),
+  createWithApp:      (data)      => api.post('/tenants/with-app', data).then(r => r.data),
   remove:             (id)        => api.delete(`/tenants/${id}`).then(r => r.data),
   updateSettings:     (id, data)  => api.patch(`/tenants/${id}/settings`, data).then(r => r.data),
   updateMeta:         (id, data)  => api.patch(`/tenants/${id}/meta`, data).then(r => r.data),
@@ -19,6 +20,7 @@ export const tenantApi = {
   getInsights:      (id)        => api.get(`/tenants/${id}/insights`).then(r => r.data),
   refreshInsights:  (id)        => api.post(`/tenants/${id}/insights`).then(r => r.data),
   checkPermissions: (body)      => api.post('/tenants/check-permissions', body).then(r => r.data),
+  checkPermissionsWithApp: (body) => api.post('/tenants/check-permissions-with-app', body).then(r => r.data),
   getPermissions:     (id)        => api.get(`/tenants/${id}/permissions`).then(r => r.data),
   refreshPermissions: (id)        => api.post(`/tenants/${id}/refresh-permissions`).then(r => r.data),
 }
@@ -27,6 +29,7 @@ export const areaApi = {
   list:           (tenantId)                => api.get(`/areas/${tenantId}`).then(r => r.data),
   pull:           (tenantId, areaKey)       => api.post(`/areas/${tenantId}/${areaKey}/pull`).then(r => r.data),
   getLive:        (tenantId, areaKey)       => api.get(`/areas/${tenantId}/${areaKey}/live`).then(r => r.data),
+  getResource:    (tenantId, areaKey, resourceId) => api.get(`/areas/${tenantId}/${areaKey}/resource/${encodeURIComponent(resourceId)}`).then(r => r.data),
   getBaseline:    (tenantId, areaKey)       => api.get(`/areas/${tenantId}/${areaKey}/baseline`).then(r => r.data),
   saveBaseline:   (tenantId, areaKey, data) => api.post(`/areas/${tenantId}/${areaKey}/baseline`, data).then(r => r.data),
   deleteBaseline: (tenantId, areaKey)       => api.delete(`/areas/${tenantId}/${areaKey}/baseline`).then(r => r.data),
@@ -43,12 +46,64 @@ export const areaApi = {
 }
 
 export const templateApi = {
-  list:   (areaKey) => api.get(`/templates${areaKey ? `?areaKey=${areaKey}` : ''}`).then(r => r.data),
-  get:    (id)      => api.get(`/templates/${id}`).then(r => r.data),
-  create: (data)    => api.post('/templates', data).then(r => r.data),
-  update: (id, data) => api.patch(`/templates/${id}`, data).then(r => r.data),
-  remove: (id)      => api.delete(`/templates/${id}`).then(r => r.data),
-  apply:  (id, tenantIds) => api.post(`/templates/${id}/apply`, { tenantIds }).then(r => r.data),
+  list:   (areaKey, opts = {}) => {
+    const params = [];
+    if (areaKey) params.push(`areaKey=${encodeURIComponent(areaKey)}`);
+    if (opts && opts.full) params.push('full=true');
+    const q = params.length ? `?${params.join('&')}` : '';
+    return api.get(`/security-templates${q}`).then(r => r.data);
+  },
+  get:    (id)      => api.get(`/security-templates/${id}`).then(r => r.data),
+  create: (data)    => api.post('/security-templates', data).then(r => r.data),
+  update: (id, data) => api.patch(`/security-templates/${id}`, data).then(r => r.data),
+  remove: (id)      => api.delete(`/security-templates/${id}`).then(r => r.data),
+  apply:  (id, tenantIds) => api.post(`/security-templates/${id}/apply`, { tenantIds }).then(r => r.data),
+  compare: (id, body) => api.post(`/security-templates/${id}/compare`, body).then(r => r.data),
+  ownerSummary: (owner, tenantId) => api.get('/security-templates/summary', { params: { tenantId } }).then(r => r.data),
+}
+
+export const referenceApi = {
+  list: (owner, opts = {}) => {
+    const params = []
+    if (owner) params.push(`owner=${owner}`)
+    if (opts && opts.forSecurity) params.push('forSecurity=true')
+    if (opts && opts.policyType) params.push(`policyType=${encodeURIComponent(opts.policyType)}`)
+    const q = params.length ? `?${params.join('&')}` : ''
+    return api.get(`/reference-templates${q}`).then(r => r.data)
+  },
+  get:  (id) => api.get(`/reference-templates/${id}`).then(r => r.data),
+  compare: (id, body, opts = {}) => {
+    const params = []
+    if (opts && opts.v2) params.push('v2=true')
+    if (opts && opts.policyType) params.push(`policyType=${encodeURIComponent(opts.policyType)}`)
+    const q = params.length ? `?${params.join('&')}` : ''
+    return api.post(`/reference-templates/${id}/compare${q}`, body).then(r => r.data)
+  },
+  preflightMapping: (id, body = {}) => api.post(`/reference-templates/${id}/preflight-mapping`, body).then(r => r.data),
+  compareMulti: (id, body) => api.post(`/reference-templates/${id}/compare-multi`, body).then(r => r.data),
+  compareMultiAsync: (id, body) => api.post(`/reference-templates/${id}/compare-multi-async`, body).then(r => r.data),
+  owners: (opts = {}) => api.get(`/reference-templates/owners${opts && opts.forSecurity ? '?forSecurity=true' : ''}`).then(r => r.data),
+  reload: () => api.post('/reference-templates/reload').then(r => r.data),
+  ownerSummary: (owner, tenantId) => api.get('/reference-templates/summary', { params: { owner, tenantId } }).then(r => r.data),
+  import: (body, opts = {}) => {
+    let url = '/reference-templates/import';
+    const params = [];
+    if (opts && opts.overwrite) params.push('overwrite=true');
+    if (params.length) url += `?${params.join('&')}`;
+    return api.post(url, body).then(r => r.data);
+  },
+  remove: (id) => api.delete(`/reference-templates/${id}`).then(r => r.data),
+  // Patch metadata for a template (supports tenantId via opts)
+  patchMetadata: (id, body, opts = {}) => {
+    let url = `/reference-templates/${id}/metadata`;
+    const params = [];
+    if (opts && opts.tenantId) params.push(`tenantId=${encodeURIComponent(opts.tenantId)}`);
+    if (params.length) url += `?${params.join('&')}`;
+    return api.patch(url, body).then(r => r.data);
+  },
+  // Tenant-scoped helpers
+  getTenantTemplates: (tenantId) => api.get(`/reference-templates/tenant/${tenantId}`).then(r => r.data),
+  getTenantTemplate: (tenantId, id) => api.get(`/reference-templates/tenant/${tenantId}/${id}`).then(r => r.data),
 }
 
 export const customCollectorApi = {
@@ -61,9 +116,21 @@ export const customCollectorApi = {
   undeploy:   (id, tenantId)             => api.delete(`/custom-collectors/${id}/deploy/${tenantId}`).then(r => r.data),
 }
 
+export const appRegistrationApi = {
+  list:   ()                   => api.get('/app-registrations').then(r => r.data),
+  create: (data)               => api.post('/app-registrations', data).then(r => r.data),
+  update: (id, data)           => api.patch(`/app-registrations/${id}`, data).then(r => r.data),
+  remove: (id)                 => api.delete(`/app-registrations/${id}`).then(r => r.data),
+  bind:   (id, body)           => api.post(`/app-registrations/${id}/bindings`, body).then(r => r.data),
+  unbind: (id, tenantId)       => api.delete(`/app-registrations/${id}/bindings/${tenantId}`).then(r => r.data),
+  setPrimary: (id, tenantId)   => api.post(`/app-registrations/${id}/bindings/${tenantId}/primary`).then(r => r.data),
+  refreshPermissions: (id, tenantId) => api.post(`/app-registrations/${id}/bindings/${tenantId}/refresh-permissions`).then(r => r.data),
+}
+
 export const msspApi = {
   getSettings:    ()     => api.get('/mssp/settings').then(r => r.data),
   updateSettings: (data) => api.patch('/mssp/settings', data).then(r => r.data),
+  testLogAnalytics: (data) => api.post('/mssp/log-analytics/test', data).then(r => r.data),
   uploadLogo: (file) => {
     const form = new FormData()
     form.append('logo', file)

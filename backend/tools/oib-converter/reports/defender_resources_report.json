@@ -1,0 +1,22 @@
+[
+  {
+    "refId": "oib:win-oib-es-defender-antivirus-d-av-configuration-v3-3:settings",
+    "refDisplayName": "Win - OIB - ES - Defender Antivirus - D - AV Configuration - v3.3 settings",
+    "status": "noMatch",
+    "matchAll": [],
+    "perKeyMatches": {
+      "settings[settingDefinitionId=device_vendor_msft_policy_config_defender_allowcloudprotection].value": [],
+      "settings.defenderRequireCloudProtection": [],
+      "settings[settingDefinitionId=device_vendor_msft_policy_config_defender_cloudblocklevel].value": [],
+      "settings.defenderCloudBlockLevel": [],
+      "settings[settingDefinitionId=device_vendor_msft_policy_config_defender_enablenetworkprotection].value": [],
+      "settings.defenderRequireNetworkInspectionSystem": [],
+      "settings[settingDefinitionId=device_vendor_msft_policy_config_defender_puaprotection].value": [],
+      "settings.defenderPuaProtection": []
+    },
+    "matchedCount": 0,
+    "matchedSamples": [],
+    "presentInPolicies": [],
+    "detail": "Setting not present in any live resource"
+  }
+]

@@ -71,6 +71,60 @@ function esc(s) {
     .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
+// Format a value for inline display in report tables. If the value is an
+// object/array, pretty-print as multi-line JSON inside a <pre>. Otherwise
+// render as an escaped inline <code> element. `isLive` toggles error styling.
+function formatInlineVal(val, isLive = false) {
+  const bg = isLive ? 'var(--code-bad-bg)' : 'var(--code-bg)';
+  const color = isLive ? 'var(--code-bad-color)' : 'var(--text-body)';
+  if (val === null || val === undefined) return `<code style="font-size:11px;background:${bg};padding:1px 5px;border-radius:3px;color:${color};">${esc('—')}</code>`;
+  // Arrays: try to detect people-like objects and render as a clean bullet list
+  if (Array.isArray(val)) {
+    if (val.length === 0) return `<code style="font-size:11px;background:${bg};padding:1px 5px;border-radius:3px;color:${color};">[]</code>`;
+    const peopleLike = val.every(it => it && typeof it === 'object' && (it.displayName || it.userPrincipalName || it.id));
+    if (peopleLike) {
+      const items = val.map(it => {
+        const name = it.displayName || it.userPrincipalName || it.id || '';
+        const upn = it.userPrincipalName ? ` (${it.userPrincipalName})` : '';
+        return `<li style="margin:2px 0;">${esc(String(name))}${it.displayName && it.userPrincipalName ? ` (${esc(String(it.userPrincipalName))})` : ''}</li>`;
+      }).join('');
+      return `<ul style="margin:0;padding-left:18px;">${items}</ul>`;
+    }
+    try {
+      const pretty = JSON.stringify(val, null, 2);
+      return `<pre style="font-size:11px;background:${bg};padding:6px;border-radius:4px;color:${color};white-space:pre-wrap;margin:0;">${esc(pretty)}</pre>`;
+    } catch (e) {
+      return `<code style="font-size:11px;background:${bg};padding:1px 5px;border-radius:3px;color:${color};">${esc(String(val))}</code>`;
+    }
+  }
+
+  if (typeof val === 'object') {
+    // Single object that might represent a person
+    if (val.displayName || val.userPrincipalName || val.id) {
+      const text = val.displayName ? `${val.displayName}${val.userPrincipalName ? ` (${val.userPrincipalName})` : ''}` : (val.userPrincipalName || val.id || '');
+      return `<code style="font-size:11px;background:${bg};padding:1px 5px;border-radius:3px;color:${color};">${esc(text)}</code>`;
+    }
+    try {
+      const pretty = JSON.stringify(val, null, 2);
+      return `<pre style="font-size:11px;background:${bg};padding:6px;border-radius:4px;color:${color};white-space:pre-wrap;margin:0;">${esc(pretty)}</pre>`;
+    } catch (e) {
+      return `<code style="font-size:11px;background:${bg};padding:1px 5px;border-radius:3px;color:${color};">${esc(String(val))}</code>`;
+    }
+  }
+  const s = String(val);
+  const t = s.trim();
+  if ((t.startsWith('{') && t.endsWith('}')) || (t.startsWith('[') && t.endsWith(']'))) {
+    try {
+      const parsed = JSON.parse(s);
+      const pretty = JSON.stringify(parsed, null, 2);
+      return `<pre style="font-size:11px;background:${bg};padding:6px;border-radius:4px;color:${color};white-space:pre-wrap;margin:0;">${esc(pretty)}</pre>`;
+    } catch (e) {
+      // fall through to inline
+    }
+  }
+  return `<code style="font-size:11px;background:${bg};padding:1px 5px;border-radius:3px;color:${color};">${esc(s)}</code>`;
+}
+
 function pill(text, color) {
   const map = {
     green:  'background:#052e16;color:#4ade80;border:1px solid #166534;',
@@ -215,8 +269,8 @@ function renderTenantReport(data, mssp = {}) {
             esc(ev.areaName),
             esc(p.resourceName),
             esc(d.label || d.path),
-            `<code style="font-size:11px;background:var(--code-bg);padding:1px 5px;border-radius:3px;color:var(--text-body);">${esc(String(d.baselineValue ?? '—'))}</code>`,
-            `<code style="font-size:11px;background:var(--code-bad-bg);padding:1px 5px;border-radius:3px;color:var(--code-bad-color);">${esc(String(d.liveValue ?? '—'))}</code>`,
+            formatInlineVal(d.baselineValue, false),
+            formatInlineVal(d.liveValue, true),
             fmtTs(ev.checkedAt, mssp?.timezone),
           ])
         )
@@ -267,21 +321,48 @@ function renderTenantReport(data, mssp = {}) {
       keys: ['entra_roles','entra_users','entra_groups','entra_apps','entra_auth_policies','entra_ca'],
     },
     {
+      label: 'Exchange Online',
+      color: '#7c3aed',
+      keys: ['exchange_mailboxes','exchange_connectors','exchange_transport_rules','exchange_mailbox_security'],
+    },
+    {
       label: 'Microsoft Intune — Policy Management',
       color: '#34d399',
       keys: ['intune_compliance','intune_config_profiles','intune_update_rings','intune_mtd_connectors','intune_app_protection'],
     },
-    {
-      label: 'Microsoft Intune — Endpoint Security',
-      color: '#fb923c',
-      keys: ['intune_ep_antivirus','intune_ep_firewall','intune_ep_disk_encryption','intune_ep_asr'],
-    },
+      {
+        label: 'Microsoft Intune — Endpoint Security',
+        color: '#fb923c',
+        keys: ['intune_ep_antivirus','intune_ep_firewall','intune_ep_disk_encryption','intune_ep_asr'],
+      },
+      {
+        label: 'SharePoint',
+        color: '#60a5fa',
+        keys: ['sharepoint_sites','sharepoint_tenant_settings'],
+      },
+      {
+        label: 'Microsoft Teams',
+        color: '#0ea5e9',
+        keys: ['teams_membership','teams_policies_meetings','teams_policies_messaging','teams_app_permission_policies','teams_channels_policies','teams_org_app_settings'],
+      },
   ];
 
   const totalAreas     = baselineCoverage.length;
   const monitoredCount = baselineCoverage.filter(a => a.hasBaseline).length;
   const cleanCount     = baselineCoverage.filter(a => a.currentStatus === 'clean').length;
   const driftedCount   = baselineCoverage.filter(a => a.currentStatus === 'drifted').length;
+  const groupedKeys    = new Set(COVERAGE_GROUPS.flatMap(g => g.keys));
+  const uncategorized  = baselineCoverage.filter(a => !groupedKeys.has(a.areaKey));
+  const renderedGroups = uncategorized.length > 0
+    ? [
+        ...COVERAGE_GROUPS,
+        {
+          label: 'Additional Areas',
+          color: '#6b7280',
+          keys: uncategorized.map(a => a.areaKey),
+        },
+      ]
+    : COVERAGE_GROUPS;
 
   const coverageSummary = `
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;">
@@ -292,12 +373,12 @@ function renderTenantReport(data, mssp = {}) {
       ${statCard('No Baseline',  totalAreas - monitoredCount, '#6b7280')}
     </div>`;
 
-  const coverageGrouped = COVERAGE_GROUPS.map(grp => {
+  const coverageGrouped = renderedGroups.map(grp => {
     const areas = grp.keys.map(k => baselineCoverage.find(a => a.areaKey === k)).filter(Boolean);
     if (areas.length === 0) return '';
     const rows = areas.map(a => [
       esc(a.areaName),
-      a.hasBaseline ? pill('Monitored', 'green') : pill('No baseline', 'yellow'),
+      a.hasBaseline ? pill('Monitored', 'green') : pill('No baseline set', 'yellow'),
       a.currentStatus === 'clean'   ? pill('Clean',   'green')
       : a.currentStatus === 'drifted' ? pill('Drifted', 'red')
       : pill('No data', 'gray'),
@@ -314,7 +395,7 @@ function renderTenantReport(data, mssp = {}) {
 
   const coverageAttest = monitoredCount > 0
     ? `<div style="margin-top:14px;padding:12px 14px;background:#0c1a0a;border-left:3px solid #22c55e;border-radius:0 6px 6px 0;font-size:12px;color:#86efac;line-height:1.6;">
-        ${monitoredCount} of ${totalAreas} configuration areas across Microsoft Entra ID and Microsoft Intune
+        ${monitoredCount} of ${totalAreas} configuration areas across Microsoft Entra ID, Exchange Online, Microsoft Intune, SharePoint and Microsoft Teams
         have been continuously monitored against a defined baseline during this reporting period,
         providing evidence of ongoing security configuration management.
        </div>`
@@ -382,8 +463,8 @@ function renderTenantReport(data, mssp = {}) {
         ev.properties.flatMap(p =>
           (p.drifts||[]).map(d => [
             esc(ev.areaName), esc(p.resourceName), esc(d.path),
-            `<code style="font-size:10px;">${esc(String(d.baselineValue??'—'))}</code>`,
-            `<code style="font-size:10px;">${esc(String(d.liveValue??'—'))}</code>`,
+            formatInlineVal(d.baselineValue, false),
+            formatInlineVal(d.liveValue, true),
             fmtTs(ev.checkedAt, mssp?.timezone),
           ])
         )
@@ -392,11 +473,11 @@ function renderTenantReport(data, mssp = {}) {
     )}
     <h3 style="margin-bottom:8px;margin-top:16px;font-size:13px;">All restore actions</h3>
     ${table(
-      ['Area', 'Resource', 'Property', 'Old value', 'New value', 'Trigger', 'Result', 'Timestamp'],
+        ['Area', 'Resource', 'Property', 'Old value', 'New value', 'Trigger', 'Result', 'Timestamp'],
       remediationLog.items.map(r => [
         esc(r.areaName), esc(r.resourceName), esc(r.propertyPath||'Full restore'),
-        `<code style="font-size:10px;">${esc(r.oldValue??'—')}</code>`,
-        `<code style="font-size:10px;">${esc(r.newValue??'—')}</code>`,
+        formatInlineVal(r.oldValue, false),
+        formatInlineVal(r.newValue, false),
         esc(r.trigger),
         pill(r.success?'Restored':'Failed', r.success?'green':'red'),
         fmtTs(r.restoredAt, mssp?.timezone),
@@ -496,8 +577,8 @@ function renderPortfolioReport(data, mssp = {}) {
         t.driftHistory.events.flatMap(ev => ev.properties.flatMap(p =>
           (p.drifts||[]).map(d => [
             esc(ev.areaName), esc(p.resourceName), esc(d.label||d.path),
-            `<code style="font-size:11px;background:var(--code-bg);padding:1px 4px;border-radius:3px;">${esc(String(d.baselineValue??'—'))}</code>`,
-            `<code style="font-size:11px;background:var(--code-bad-bg);color:var(--code-bad-color);padding:1px 4px;border-radius:3px;">${esc(String(d.liveValue??'—'))}</code>`,
+            formatInlineVal(d.baselineValue, false),
+            formatInlineVal(d.liveValue, true),
             fmtTs(ev.checkedAt, mssp?.timezone)
           ])
         )), 'No drift events.'

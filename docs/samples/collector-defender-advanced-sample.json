@@ -1,0 +1,23 @@
+{
+  "device2": {
+    "id": "device2",
+    "displayName": "Device 2",
+    "settings": [
+      {
+        "settingDefinitionId": "device_vendor_msft_policy_config_defender_allowcloudprotection",
+        "name": "device_vendor_msft_policy_config_defender_allowcloudprotection_2",
+        "value": "Blocked"
+      },
+      {
+        "settingDefinitionId": "device_vendor_msft_policy_config_defender_cloudblocklevel",
+        "name": "device_vendor_msft_policy_config_defender_cloudblocklevel_1",
+        "value": "notConfigured"
+      },
+      {
+        "settingDefinitionId": "device_vendor_msft_policy_config_defender_puaprotection",
+        "name": "device_vendor_msft_policy_config_defender_puaprotection_3",
+        "value": "Audit"
+      }
+    ]
+  }
+}

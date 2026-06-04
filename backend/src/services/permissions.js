@@ -79,9 +79,21 @@ async function checkGrantedPermissions(token, clientId, tenantId = null) {
     if (name) grantedNames.add(name);
   }
 
+  // Normalize permission names by stripping trailing '.All' (legacy forms)
+  const normalizePerm = (p) => (typeof p === 'string' && p.endsWith('.All') ? p.slice(0, -4) : p);
+
+  const grantedNamesRaw = new Set();
+  for (const roleId of grantedRoleIds) {
+    const name = roleIdToName[roleId];
+    if (name) grantedNamesRaw.add(name);
+  }
+
+  // Canonicalize granted permission names for consistent comparisons
+  const canonicalGranted = new Set(Array.from(grantedNamesRaw).map(normalizePerm));
+
   return {
-    granted: Array.from(grantedNames).sort(),
-    has: (permissionName) => grantedNames.has(permissionName)
+    granted: Array.from(canonicalGranted).sort(),
+    has: (permissionName) => canonicalGranted.has(normalizePerm(permissionName))
   };
 }
 
@@ -93,33 +105,36 @@ async function checkGrantedPermissions(token, clientId, tenantId = null) {
  *   areaKey, displayName, description, licenceRequired,
  *   canRead:  boolean,   // all readPermissions granted
  *   canWrite: boolean,   // all writePermissions granted
+ *   canRestore: boolean, // write granted and collector supports restore
+ *   restoreSupported: boolean,
+ *   restoreReason: string | null,
  *   missingRead:  [],    // permissions needed to unlock sync
  *   missingWrite: [],    // permissions needed to unlock restore
+ *   missingPermissions: [], // union of missingRead and missingWrite
  * }
  */
 function buildAreaPermissionMap(granted, collectors) {
-  // ReadWrite implies Read — if the app has User.ReadWrite.All it can Read too.
-  // We expand the granted set to include the implied Read for every ReadWrite grant.
-  const grantedSet = new Set(granted);
+  // Normalize granted entries and expand ReadWrite → Read.
+  const normalizePerm = (p) => (typeof p === 'string' && p.endsWith('.All') ? p.slice(0, -4) : p);
+  const grantedSet = new Set((granted || []).map(normalizePerm));
   for (const p of Array.from(grantedSet)) {
-    // Pattern 1: "Foo.ReadWrite.All" → "Foo.Read.All"
-    if (p.includes('.ReadWrite.')) {
-      grantedSet.add(p.replace('.ReadWrite.', '.Read.'));
-    }
-    // Pattern 2: "FooReadWrite.All" → "FooRead.All"  (e.g. DeviceManagementConfiguration)
     if (p.includes('ReadWrite')) {
       grantedSet.add(p.replace('ReadWrite', 'Read'));
     }
-    // Pattern 3: "Foo.ReadWrite" (no trailing scope) → "Foo.Read"
     if (p.endsWith('.ReadWrite')) {
       grantedSet.add(p.replace('.ReadWrite', '.Read'));
     }
   }
-  const has = (p) => grantedSet.has(p);
+  const has = (p) => grantedSet.has(normalizePerm(p));
 
   return Object.values(collectors).map(c => {
     const missingRead  = (c.readPermissions  || []).filter(p => !has(p));
     const missingWrite = (c.writePermissions || []).filter(p => !has(p));
+    const restoreSupported = c.restoreSupported !== false;
+    const restoreReason = c.restoreReason || (restoreSupported ? null : 'Restore is not currently supported for this collector.');
+    const canRead = missingRead.length === 0;
+    const hasWritePermissions = missingWrite.length === 0;
+    const missingPermissions = Array.from(new Set([...(missingRead || []), ...(missingWrite || [])]));
     return {
       areaKey:        c.areaKey,
       displayName:    c.displayName,
@@ -127,10 +142,14 @@ function buildAreaPermissionMap(granted, collectors) {
       licenceRequired: c.licenceRequired || null,
       readPermissions:  c.readPermissions  || [],
       writePermissions: c.writePermissions || [],
-      canRead:  missingRead.length  === 0,
-      canWrite: missingWrite.length === 0,
+      canRead,
+      canWrite: hasWritePermissions,
+      canRestore: restoreSupported && hasWritePermissions,
+      restoreSupported,
+      restoreReason,
       missingRead,
       missingWrite,
+      missingPermissions,
     };
   });
 }

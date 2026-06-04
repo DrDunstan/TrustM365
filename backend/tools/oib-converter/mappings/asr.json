@@ -1,0 +1,30 @@
+{
+  "key": "asr",
+  "display_name": "Attack Surface Reduction (ASR) Rules",
+  "category": "attack_surface_reduction",
+  "policyType": "Attack Surface Reduction Rules",
+  "scope": "Device",
+  "area_key": "intune_ep_asr",
+  "required_licenses": ["Defender for Endpoint"],
+  "source_url": "https://github.com/SkipToTheEndpoint/OpenIntuneBaseline/blob/main/WINDOWS/SETTINGSOUTPUT.md",
+  "settingsMap": {
+    "Block all Office applications from creating child processes": {
+      "property_path": "settings[name=Block all Office applications from creating child processes].value",
+      "setting_definition_id": "device_vendor_msft_policy_config_defender_attacksurfacereductionrules_blockallofficeapplicationsfromcreatingchildprocesses",
+      "type": "enum",
+      "allowed_values": ["Block","Audit Mode","Warn"]
+    },
+    "Block JavaScript or VBScript from launching downloaded executable content": {
+      "property_path": "settings[name=Block JavaScript or VBScript from launching downloaded executable content].value",
+      "setting_definition_id": "device_vendor_msft_policy_config_defender_attacksurfacereductionrules_blockjavascriptorvbscriptfromlaunchingdownloadedexecutablecontent",
+      "type": "enum",
+      "allowed_values": ["Block","Audit Mode"]
+    },
+    "Enable Controlled Folder Access": {
+      "property_path": "settings[name=Enable Controlled Folder Access].value",
+      "setting_definition_id": "device_vendor_msft_policy_config_defender_useadvancedprotectionagainstransomware",
+      "type": "enum",
+      "allowed_values": ["Enabled","Audit Mode","Disabled"]
+    }
+  }
+}

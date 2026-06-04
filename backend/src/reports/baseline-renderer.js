@@ -28,14 +28,7 @@ function fmtTs(iso) {
     return iso;
   }
 }
-  function fmtTs(iso) {
-    if (!iso) return '\u0014';
-    try {
-      return new Date(iso).toLocaleString('en-AU', { dateStyle: 'medium', timeStyle: 'short' });
-    } catch {
-      return iso;
-    }
-  }
+
 
 function css(accentHex) {
   const accent = accentHex ? accentHex.replace('#','') : '4f46e5';
@@ -147,7 +140,9 @@ function css(accentHex) {
       vertical-align: top;
     }
     tr:nth-child(even) td { background: #f8fafc; }
-    .val-mono { font-family: 'Consolas', 'Courier New', monospace; font-size: 11px; color: #1e293b; word-break: break-all; }
+    .val-mono { font-family: 'Consolas', 'Courier New', monospace; font-size: 11px; color: #1e293b; white-space: pre-wrap; word-break: break-word; }
+    ul.val-list { margin:0; padding-left:18px; font-size:12px; color:#1e293b; }
+    ul.val-list li { margin:4px 0; }
     .val-bool-true { color: #16a34a; font-weight: 600; }
     .val-bool-false { color: #dc2626; font-weight: 600; }
     .empty-msg { color: #94a3b8; font-size: 12px; font-style: italic; padding: 8px 0; }
@@ -171,7 +166,52 @@ function css(accentHex) {
 function valCell(val) {
   if (val === 'Yes') return `<td class="val-mono val-bool-true">Yes</td>`;
   if (val === 'No')  return `<td class="val-mono val-bool-false">No</td>`;
-  return `<td class="val-mono">${esc(val)}</td>`;
+  if (val === null || val === undefined) return `<td class="val-mono">—</td>`;
+  // Arrays: render people lists as simple bullet lists, otherwise pretty JSON
+  if (Array.isArray(val)) {
+    if (val.length === 0) return `<td class="val-mono">[]</td>`;
+    const peopleLike = val.every(it => it && typeof it === 'object' && (it.displayName || it.userPrincipalName || it.id));
+    if (peopleLike) {
+      const items = val.map(it => {
+        const name = it.displayName || it.userPrincipalName || it.id || '';
+        return `<li>${esc(String(name))}${it.displayName && it.userPrincipalName ? ` (${esc(String(it.userPrincipalName))})` : ''}</li>`;
+      }).join('');
+      return `<td><ul class="val-list">${items}</ul></td>`;
+    }
+    try {
+      const pretty = JSON.stringify(val, null, 2);
+      return `<td><pre class="val-mono" style="margin:0; white-space:pre-wrap;">${esc(pretty)}</pre></td>`;
+    } catch (e) {
+      return `<td class="val-mono">${esc(String(val))}</td>`;
+    }
+  }
+
+  if (typeof val === 'object') {
+    if (val.displayName || val.userPrincipalName || val.id) {
+      const text = val.displayName ? `${val.displayName}${val.userPrincipalName ? ` (${val.userPrincipalName})` : ''}` : (val.userPrincipalName || val.id || '');
+      return `<td class="val-mono">${esc(text)}</td>`;
+    }
+    try {
+      const pretty = JSON.stringify(val, null, 2);
+      return `<td><pre class="val-mono" style="margin:0; white-space:pre-wrap;">${esc(pretty)}</pre></td>`;
+    } catch (e) {
+      return `<td class="val-mono">${esc(String(val))}</td>`;
+    }
+  }
+
+  const s = String(val);
+  const trimmed = s.trim();
+  // If the value is JSON (object/array) encoded as a string, pretty-print it
+  if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+    try {
+      const parsed = JSON.parse(s);
+      const pretty = JSON.stringify(parsed, null, 2);
+      return `<td><pre class="val-mono" style="margin:0; white-space:pre-wrap;">${esc(pretty)}</pre></td>`;
+    } catch (e) {
+      // fall back to single-line if parsing fails
+    }
+  }
+  return `<td class="val-mono">${esc(s)}</td>`;
 }
 
 function renderResource(res) {
@@ -205,14 +245,17 @@ function renderResource(res) {
 
   // ── EP Security settings ──────────────────────────────────────────────────
   if (res.epSettings) {
-    html += `<div class="section-label">Settings Catalog — Raw Settings</div>`;
+    html += `<div class="section-label">Settings Catalog — Settings</div>`;
     if (res.epSettings.length === 0) {
       html += `<p class="empty-msg">No settings recorded in this baseline.</p>`;
     } else {
-      html += `<table><thead><tr><th>Setting Definition ID</th><th>Value</th></tr></thead><tbody>`;
+      html += `<table><thead><tr><th>Setting</th><th>Value</th></tr></thead><tbody>`;
       for (const s of res.epSettings) {
+        const display = esc(s.label || s.settingDefinitionId || '—');
+        const rawId = s.settingDefinitionId ? esc(s.settingDefinitionId) : '';
+        const rawHtml = (s.label && s.settingDefinitionId && s.label !== s.settingDefinitionId) ? `<div style="font-size:11px;color:#94a3b8;margin-top:4px;">${rawId}</div>` : '';
         html += `<tr>
-          <td class="val-mono">${esc(s.settingDefinitionId)}</td>
+          <td class="val-mono">${display}${rawHtml}</td>
           ${valCell(s.value)}
         </tr>`;
       }
@@ -230,6 +273,71 @@ function renderResource(res) {
       html += `<tr><td class="val-mono">${esc(fc.key)}</td>${valCell(fc.value)}</tr>`;
     }
     html += `</tbody></table>`;
+  }
+
+  // ── Exchange mailbox summary (mailbox settings, forwarding/message rules)
+  if (res.mailboxSettings || (Array.isArray(res.forwardingRules) && res.forwardingRules.length > 0) || (Array.isArray(res.messageRules) && res.messageRules.length > 0) || res.inferenceClassification) {
+    html += `<div class="section-label">Mailbox Summary</div>`;
+    if (res.mailboxSettings) {
+      const tz = res.mailboxSettings.timeZone || '—';
+      const ars = res.mailboxSettings.automaticRepliesSetting || null;
+      const autoStatus = ars?.status ?? null;
+      const autoExt = ars?.externalAudience ?? null;
+      html += `<div style="display:flex;gap:16px;margin-bottom:8px;"><div><strong>Time zone:</strong> ${esc(String(tz))}</div><div><strong>Automatic Replies:</strong> ${esc(autoStatus ?? '—')}${autoExt ? ' · ' + esc(String(autoExt)) : ''}</div></div>`;
+    }
+
+    if (Array.isArray(res.forwardingRules) && res.forwardingRules.length > 0) {
+      html += `<div class="section-label">Forwarding Rules</div><table><thead><tr><th>Rule</th><th>Details</th></tr></thead><tbody>`;
+      for (const fr of res.forwardingRules) {
+        const title = fr.displayName || fr.id || JSON.stringify(fr);
+        html += `<tr><td class="val-mono">${esc(title)}</td>${valCell(fr)}</tr>`;
+      }
+      html += `</tbody></table>`;
+    }
+
+    if (Array.isArray(res.messageRules) && res.messageRules.length > 0) {
+      html += `<div class="section-label">Inbox Message Rules</div><table><thead><tr><th>Name</th><th>Details</th></tr></thead><tbody>`;
+      for (const mr of res.messageRules) {
+        const title = mr.displayName || mr.id || JSON.stringify(mr);
+        html += `<tr><td class="val-mono">${esc(title)}</td>${valCell(mr)}</tr>`;
+      }
+      html += `</tbody></table>`;
+    }
+
+    if (res.inferenceClassification) {
+      html += `<div class="section-label">Inference Classification</div>`;
+      html += `<table><thead><tr><th>Field</th><th>Value</th></tr></thead><tbody>`;
+      for (const k of Object.keys(res.inferenceClassification || {})) {
+        html += `<tr><td class="val-mono">${esc(k)}</td>${valCell(res.inferenceClassification[k])}</tr>`;
+      }
+      html += `</tbody></table>`;
+    }
+  }
+
+  // ── External sharing summary (SharePoint signals)
+  if (res.externalShareCount || res.anonymousLinkCount || (Array.isArray(res.topExternallyShared) && res.topExternallyShared.length > 0) || (Array.isArray(res.externalShareSamples) && res.externalShareSamples.length > 0)) {
+    html += `<div class="section-label">External Sharing</div>`;
+    html += `<div style="display:flex;gap:16px;margin-bottom:8px;"><div><strong>External shares:</strong> ${esc(String(res.externalShareCount ?? '0'))}</div><div><strong>Anonymous links:</strong> ${esc(String(res.anonymousLinkCount ?? '0'))}</div></div>`;
+
+    if (Array.isArray(res.externalShareSamples) && res.externalShareSamples.length > 0) {
+      html += `<div class="section-label">External Share Samples</div><table><thead><tr><th>Item</th><th>Details</th></tr></thead><tbody>`;
+      for (const s of res.externalShareSamples) {
+        const title = s.webUrl || s.displayName || s.id || JSON.stringify(s);
+        html += `<tr><td class="val-mono">${esc(title)}</td>${valCell(s)}</tr>`;
+      }
+      html += `</tbody></table>`;
+    }
+
+    if (Array.isArray(res.topExternallyShared) && res.topExternallyShared.length > 0) {
+      html += `<div class="section-label">Top Externally Shared Items</div><table><thead><tr><th>Item</th><th>Roles</th><th>Site</th></tr></thead><tbody>`;
+      for (const it of res.topExternallyShared) {
+        const title = it.webUrl || it.displayName || it.id || JSON.stringify(it);
+        const roles = Array.isArray(it.roles) ? it.roles.join(', ') : (it.roles || '');
+        const site = it.siteName || '';
+        html += `<tr><td class="val-mono">${esc(title)}</td><td class="val-mono">${esc(roles)}</td><td class="val-mono">${esc(site)}</td></tr>`;
+      }
+      html += `</tbody></table>`;
+    }
   }
 
   html += `</div>`; // .resource

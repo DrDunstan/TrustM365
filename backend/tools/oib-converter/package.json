@@ -1,0 +1,10 @@
+{
+  "name": "oib-converter",
+  "version": "0.1.0",
+  "main": "cli.js",
+  "scripts": {
+    "convert": "node cli.js",
+    "test": "node tests/run_tests.js"
+  },
+  "license": "MIT"
+}

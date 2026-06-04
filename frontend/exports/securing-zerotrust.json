@@ -1,0 +1,166 @@
+{
+  "tenant": {
+    "id": "3098b07e-6488-4a0e-b762-70498ec8a10f",
+    "display_name": "SecuringM365"
+  },
+  "base": "http://127.0.0.1:3001",
+  "generatedAt": "2026-04-29T06:21:23.936Z",
+  "totals": {
+    "total": 32,
+    "matched": 12,
+    "partial": 0,
+    "failing": 20
+  },
+  "perTemplate": [
+    {
+      "id": "zerotrust-apps",
+      "name": "ZeroTrust — Application Registrations",
+      "total": 5,
+      "matched": 3,
+      "partial": 0,
+      "failing": 2,
+      "itemsCount": 5,
+      "rawSummary": {
+        "total": 5,
+        "matched": 3,
+        "partial": 0,
+        "noMatch": 2
+      }
+    },
+    {
+      "id": "zerotrust-auth-passwordless",
+      "name": "ZeroTrust — Authentication Methods (Passwordless)",
+      "total": 5,
+      "matched": 4,
+      "partial": 0,
+      "failing": 1,
+      "itemsCount": 5,
+      "rawSummary": {
+        "total": 5,
+        "matched": 4,
+        "partial": 0,
+        "noMatch": 1
+      }
+    },
+    {
+      "id": "zerotrust-authorization-invite-policy",
+      "name": "ZeroTrust — Guest Invite Policy",
+      "total": 1,
+      "matched": 1,
+      "partial": 0,
+      "failing": 0,
+      "itemsCount": 1,
+      "rawSummary": {
+        "total": 1,
+        "matched": 1,
+        "partial": 0,
+        "noMatch": 0
+      }
+    },
+    {
+      "id": "zerotrust-ca-mfa",
+      "name": "ZeroTrust — Conditional Access: MFA for all users",
+      "total": 1,
+      "matched": 0,
+      "partial": 0,
+      "failing": 1,
+      "itemsCount": 1,
+      "rawSummary": {
+        "total": 1,
+        "matched": 0,
+        "partial": 0,
+        "noMatch": 1
+      }
+    },
+    {
+      "id": "zerotrust-device-compliance-policies",
+      "name": "ZeroTrust — Device Compliance Policies",
+      "total": 1,
+      "matched": 0,
+      "partial": 0,
+      "failing": 1,
+      "itemsCount": 1,
+      "rawSummary": {
+        "total": 1,
+        "matched": 0,
+        "partial": 0,
+        "noMatch": 1
+      }
+    },
+    {
+      "id": "zerotrust-device-tpm-required",
+      "name": "ZeroTrust — Device Compliance: TPM required",
+      "total": 1,
+      "matched": 0,
+      "partial": 0,
+      "failing": 1,
+      "itemsCount": 1,
+      "rawSummary": {
+        "total": 1,
+        "matched": 0,
+        "partial": 0,
+        "noMatch": 1
+      }
+    },
+    {
+      "id": "zerotrust-devices",
+      "name": "ZeroTrust — Devices",
+      "total": 7,
+      "matched": 0,
+      "partial": 0,
+      "failing": 7,
+      "itemsCount": 7,
+      "rawSummary": {
+        "total": 7,
+        "matched": 0,
+        "partial": 0,
+        "noMatch": 7
+      }
+    },
+    {
+      "id": "zerotrust-identity-protection",
+      "name": "ZeroTrust — Identity Protection & Sign-ins",
+      "total": 5,
+      "matched": 2,
+      "partial": 0,
+      "failing": 3,
+      "itemsCount": 5,
+      "rawSummary": {
+        "total": 5,
+        "matched": 2,
+        "partial": 0,
+        "noMatch": 3
+      }
+    },
+    {
+      "id": "zerotrust-privileged-roles",
+      "name": "ZeroTrust — Privileged Roles (PIM)",
+      "total": 5,
+      "matched": 2,
+      "partial": 0,
+      "failing": 3,
+      "itemsCount": 5,
+      "rawSummary": {
+        "total": 5,
+        "matched": 2,
+        "partial": 0,
+        "noMatch": 3
+      }
+    },
+    {
+      "id": "zerotrust-security-defaults",
+      "name": "ZeroTrust — Security Defaults",
+      "total": 1,
+      "matched": 0,
+      "partial": 0,
+      "failing": 1,
+      "itemsCount": 1,
+      "rawSummary": {
+        "total": 1,
+        "matched": 0,
+        "partial": 0,
+        "noMatch": 1
+      }
+    }
+  ]
+}

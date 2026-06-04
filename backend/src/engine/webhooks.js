@@ -24,6 +24,7 @@ const https  = require('https');
 const http   = require('http');
 const { getDb } = require('../database/init');
 const logger = require('../utils/logger');
+const { emitSiemEvent } = require('../services/logAnalytics');
 
 // ── Build the drift payload ──────────────────────────────────────────────────
 function buildPayload(tenant, area, driftResult) {
@@ -119,7 +120,14 @@ async function fireWebhooksForDrift(tenantDbId, areaKey, driftResult) {
         const alreadyFired = db.prepare(
           'SELECT 1 FROM webhook_fired WHERE webhook_id = ? AND tenant_id = ? AND area_key = ?'
         ).get(wh.id, tenantDbId, areaKey);
-        if (alreadyFired) continue; // Skip — already notified, wait for resolution
+        if (alreadyFired) {
+          emitSiemEvent('webhooks', 'webhook.delivery.skipped_first_mode', {
+            webhookId: wh.id,
+            tenantDbId,
+            areaKey,
+          });
+          continue; // Skip — already notified, wait for resolution
+        }
       }
 
       await deliverPayload(wh.url, payload);
@@ -136,10 +144,23 @@ async function fireWebhooksForDrift(tenantDbId, areaKey, driftResult) {
       }
 
       logger.info({ webhookId: wh.id, tenantId: tenant.tenant_id, areaKey }, 'Webhook delivered');
+      emitSiemEvent('webhooks', 'webhook.delivery.succeeded', {
+        webhookId: wh.id,
+        tenantDbId,
+        tenantId: tenant.tenant_id,
+        areaKey,
+      });
     } catch (err) {
       db.prepare("UPDATE webhook_destinations SET last_error = ? WHERE id = ?")
         .run(err.message, wh.id);
       logger.warn({ err, webhookId: wh.id, tenantId: tenant.tenant_id }, 'Webhook delivery failed');
+      emitSiemEvent('webhooks', 'webhook.delivery.failed', {
+        webhookId: wh.id,
+        tenantDbId,
+        tenantId: tenant.tenant_id,
+        areaKey,
+        error: err.message,
+      });
     }
   }
 }

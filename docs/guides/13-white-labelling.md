@@ -4,6 +4,10 @@ TrustM365 can be branded for your organisation so that client-facing reports and
 
 Navigate to **MSSP Settings** in the sidebar to configure all branding options.
 
+![MSSP Settings branding controls](./visuals/guide-mssp-settings.png)
+
+_Visual reference: organisation name, logo, accent colour, and report-branding controls._
+
 ---
 
 ## Organisation name

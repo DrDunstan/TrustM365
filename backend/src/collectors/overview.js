@@ -277,3 +277,47 @@ async function fetchTenantInsights(token) {
 }
 
 module.exports = { fetchTenantOverview, fetchTenantInsights };
+
+// --- Grouped area overviews (Exchange, Teams) ---
+const collectorsIndex = require('./index');
+
+const exchangeOverview = {
+  areaKey: 'exchange',
+  displayName: 'Exchange Online',
+  description: 'Exchange Online collectors grouped together: mailboxes, connectors, transport rules.',
+  collectors: ['exchange_mailboxes','exchange_mailbox_security','exchange_connectors','exchange_transport_rules'],
+  perCollectorWatchableKeys: {
+    exchange_mailboxes: (collectorsIndex.exchange_mailboxes && collectorsIndex.exchange_mailboxes.watchableKeys) || [],
+    exchange_mailbox_security: (collectorsIndex.exchange_mailbox_security && collectorsIndex.exchange_mailbox_security.watchableKeys) || [],
+    exchange_connectors: (collectorsIndex.exchange_connectors && collectorsIndex.exchange_connectors.watchableKeys) || [],
+    exchange_transport_rules: (collectorsIndex.exchange_transport_rules && collectorsIndex.exchange_transport_rules.watchableKeys) || [],
+  }
+};
+
+const teamsOverview = {
+  areaKey: 'teams',
+  displayName: 'Microsoft Teams',
+  description: 'Microsoft Teams collectors grouped: policy posture, membership, and org app settings.',
+  collectors: ['teams_policies_messaging','teams_policies_meetings','teams_membership','teams_app_permission_policies','teams_channels_policies','teams_org_app_settings'],
+  perCollectorWatchableKeys: {
+    teams_policies_messaging: (collectorsIndex.teams_policies_messaging && collectorsIndex.teams_policies_messaging.watchableKeys) || [],
+    teams_policies_meetings: (collectorsIndex.teams_policies_meetings && collectorsIndex.teams_policies_meetings.watchableKeys) || [],
+    teams_membership: (collectorsIndex.teams_membership && collectorsIndex.teams_membership.watchableKeys) || [],
+    teams_app_permission_policies: (collectorsIndex.teams_app_permission_policies && collectorsIndex.teams_app_permission_policies.watchableKeys) || [],
+    teams_channels_policies: (collectorsIndex.teams_channels_policies && collectorsIndex.teams_channels_policies.watchableKeys) || [],
+    teams_org_app_settings: (collectorsIndex.teams_org_app_settings && collectorsIndex.teams_org_app_settings.watchableKeys) || [],
+  }
+};
+
+const sharepointOverview = {
+  areaKey: 'sharepoint',
+  displayName: 'SharePoint',
+  description: 'SharePoint collectors grouped together: site snapshots, sharing summaries, and tenant security settings.',
+  collectors: ['sharepoint_sites', 'sharepoint_tenant_settings'],
+  perCollectorWatchableKeys: {
+    sharepoint_sites: (collectorsIndex.sharepoint_sites && collectorsIndex.sharepoint_sites.watchableKeys) || [],
+    sharepoint_tenant_settings: (collectorsIndex.sharepoint_tenant_settings && collectorsIndex.sharepoint_tenant_settings.watchableKeys) || []
+  }
+};
+
+module.exports = { fetchTenantOverview, fetchTenantInsights, exchangeOverview, teamsOverview, sharepointOverview, groupOverviews: { exchange: exchangeOverview, teams: teamsOverview, sharepoint: sharepointOverview } };

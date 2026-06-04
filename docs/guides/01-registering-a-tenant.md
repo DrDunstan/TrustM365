@@ -14,6 +14,10 @@ Registering a tenant connects TrustM365 to a Microsoft 365 tenant via the Micros
 
 Click **+ Add Tenant** at the bottom of the left sidebar.
 
+![Home page with Add Tenant button in the sidebar](./visuals/guide-home-overview.png)
+
+_Visual reference: the **+ Add Tenant** action is pinned at the lower-left sidebar._
+
 The wizard opens on the App Registration guide step. If you have already completed the App Registration, skip past this step using the tabs at the top.
 
 ---

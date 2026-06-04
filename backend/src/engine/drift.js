@@ -50,6 +50,14 @@ function diffResource(liveResource, baselineResource, watchedKeys = []) {
   const diffs = [];
   const keysToCheck = watchedKeys.length > 0
     ? watchedKeys
+        .map(k => {
+          if (typeof k === 'string') return { path: k, label: k };
+          if (k && typeof k === 'object' && typeof k.path === 'string') {
+            return { path: k.path, label: k.label || k.path };
+          }
+          return null;
+        })
+        .filter(Boolean)
     : Object.keys(baselineResource)
         .filter(k => !VOLATILE_KEYS.has(k) && k !== 'id')
         .map(k => ({ path: k, label: k }));

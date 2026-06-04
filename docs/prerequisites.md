@@ -73,6 +73,31 @@ Without `AuditLog.Read.All`, the MFA Registration and Authentication Methods pan
 
 > **Licence note:** The MFA registration report API (`/reports/credentialUserRegistrationDetails`) requires a Microsoft Entra ID P1 or P2 licence on the tenant. On tenants with only Entra ID Free, this panel will show as unavailable regardless of permissions.
 
+### SharePoint & Microsoft Teams (optional — collaboration and content)
+
+These areas pull data from Microsoft Graph endpoints that expose SharePoint site collections, drives, sharing links and Microsoft Teams metadata (teams, members, owners and team settings). These endpoints can be subject to stricter throttling and polling guidance from Microsoft Graph; TrustM365 treats SharePoint and Teams as best-effort areas and may poll them less frequently to avoid excessive Graph usage.
+
+Note: TrustM365 surfaces a small set of summarised signals for SharePoint and Teams to aid triage and reporting. These summary keys are monitor-only (displayed in the Area view and included in exports), while supported policy and membership fields can still be restored where write permissions are granted.
+
+- SharePoint watchable/summary keys: `anonymousLinkCount`, `anonymousLinks`, `externalShareCount`, `externalShareSamples`, `topExternallyShared`.
+- Teams watchable/summary keys: `guestCount`, `guestSamples`, `installedAppCount`, `installedApps`, `privilegedInstalledApps`.
+
+Detailed samples (e.g. installed apps or permission entries) are fetched on a best-effort basis and may require additional Graph permissions or be subject to throttling. If you need full coverage for drive-level or app-level details, ensure the App Registration includes the appropriate Graph permissions and monitor the polling behaviour to stay within API rate limits.
+
+| Permission | Covers |
+|---|---|
+| `Sites.Read.All` | Read site collections, drive metadata and sharing entries (SharePoint monitoring) |
+| `Sites.Manage.All` | Manage site properties and drive-level sharing (SharePoint restore) |
+| `SharePointTenantSettings.Read.All` | Read SharePoint tenant-level security and sharing settings |
+| `SharePointTenantSettings.ReadWrite.All` | Restore SharePoint tenant-level security and sharing settings |
+| `Team.ReadBasic.All` | Read basic Teams metadata, members and owners (Teams monitoring) |
+| `TeamSettings.ReadWrite.All` | Team settings write operations (Teams restore) |
+| `TeamworkAppSettings.Read.All` | Read Teams organization app settings |
+| `TeamworkAppSettings.ReadWrite.All` | Restore Teams organization app settings |
+| `GroupMember.ReadWrite.All` | Team membership write operations (restore members and owners) |
+
+> Note: TrustM365 separates Teams policy restore and membership restore. Policy restore uses `TeamSettings.ReadWrite.All`; membership restore uses `GroupMember.ReadWrite.All`.
+
 ### Restore permissions (write — optional)
 
 Add these to enable the one-click restore feature. You can add them at any time — TrustM365 re-checks permissions on every sync and enables restore automatically without any reconfiguration.
@@ -84,10 +109,10 @@ Add these to enable the one-click restore feature. You can add them at any time 
 | `RoleManagement.ReadWrite.Directory` | Directory role assignments |
 | `User.ReadWrite.All` | User account properties |
 | `Group.ReadWrite.All` | Group settings |
+| `GroupMember.ReadWrite.All` | Team and Microsoft 365 group membership (members and owners) |
 | `Application.ReadWrite.All` | App registration settings |
 
 > **Read-only deployment:** Omit all `ReadWrite` permissions if you only need drift detection. Restore buttons are hidden automatically. Tenant Insights MFA panels require `AuditLog.Read.All` separately.
-
 > **Entra ID Free tenants:** `Policy.ReadWrite.ConditionalAccess` and the Intune permissions can be omitted — those areas are automatically shown as **Licence required** and are never counted as errors.
 
 ### Custom collectors
@@ -154,6 +179,11 @@ When your secret is approaching expiry (visible in **Certificates & secrets**, a
 | `DeviceManagementServiceConfig.Read.All` | ✅ | — | Mobile Threat Defense connector monitoring |
 | `DeviceManagementApps.Read.All` | ✅ | — | App Protection Policies (MAM) — iOS/Android |
 | `AuditLog.Read.All` | ✅ | — | Tenant Insights — MFA registration + auth method breakdown (requires Entra ID P1/P2) |
+| `Sites.Read.All` | ✅ | — | SharePoint site monitoring (site collections, drives, sharing links) |
+| `Sites.Manage.All` | — | ✅ | SharePoint site management / restore |
+| `Team.ReadBasic.All` | ✅ | — | Microsoft Teams metadata and members monitoring |
+| `TeamSettings.ReadWrite.All` | — | ✅ | Teams settings restore |
+| `GroupMember.ReadWrite.All` | — | ✅ | Teams membership restore (members and owners) |
 | `Policy.ReadWrite.ConditionalAccess` | — | ✅ | CA policy restore |
 | `Policy.ReadWrite.AuthenticationMethod` | — | ✅ | Auth policy restore |
 | `RoleManagement.ReadWrite.Directory` | — | ✅ | Role assignment restore |
@@ -162,6 +192,37 @@ When your secret is approaching expiry (visible in **Certificates & secrets**, a
 | `Application.ReadWrite.All` | — | ✅ | App registration restore |
 | `DeviceManagementConfiguration.ReadWrite.All` | — | ✅ | Intune policy restore (compliance, config, update rings, endpoint security) |
 | `DeviceManagementServiceConfig.ReadWrite.All` | — | ✅ | Mobile Threat Defense connector restore |
+
+### Exchange Online (optional — mailboxes)
+
+Exchange collectors fetch mailbox-level settings (automatic replies, language/timezone), forwarding indicators, and policy/routing snapshots where available through Graph beta endpoints.
+
+- Exchange watchable/summary keys include mailbox settings and forwarding indicators, plus connector/transport-rule payload summaries when those endpoints are available.
+
+| Permission | Covers |
+|---|---|
+| `MailboxSettings.Read` | Read user mailbox settings (automatic replies, time zone, language) |
+| `MailboxSettings.ReadWrite` | Restore mailbox security settings in the `exchange_mailbox_security` collector |
+| `Policy.Read.All` | Read Exchange connector and transport-rule snapshots (best effort via Graph beta endpoints) |
+
+Collectors with no Graph ReadWrite capability (read-only only):
+
+- `exchange_connectors` (`Policy.Read.All`)
+- `exchange_transport_rules` (`Policy.Read.All`)
+- `intune_app_protection` (`DeviceManagementApps.Read.All`)
+
+In tenant screens, these collectors are shown as `ReadWrite: Not available for this collector`.
+
+**Enabling the Mailboxes area:**
+
+- Grant `MailboxSettings.Read` (application permission) and then use **Grant admin consent** so the permission takes effect. The Mailboxes area will unlock for monitoring once the permission is present. TrustM365 accepts legacy `.All` variants (for example `MailboxSettings.Read.All`) for compatibility.
+- Add `MailboxSettings.ReadWrite` to enable restore actions in the `exchange_mailbox_security` collector.
+- Add `Policy.Read.All` if you want connector and transport-rule collectors to populate when the tenant exposes those Graph beta endpoints.
+- After granting permissions and consent, refresh the tenant's permissions in TrustM365 (click ⚙ → **Sync Permissions** in the tenant view) or call:
+
+```bash
+POST /api/tenants/:id/refresh-permissions
+```
 
 ---
 

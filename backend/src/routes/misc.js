@@ -5,6 +5,8 @@ const multer  = require('multer');
 const router  = express.Router();
 const { getDb } = require('../database/init');
 const logger  = require('../utils/logger');
+const { encrypt } = require('../utils/encryption');
+const { sanitizeLogTypePrefix, sanitizeSchemaVersion, testConnection } = require('../services/logAnalytics');
 
 // ── Health check — used by Docker HEALTHCHECK and Azure App Service ───────────
 router.get('/health', (req, res) => {
@@ -58,20 +60,61 @@ router.get('/mssp/settings', (req, res) => {
   const settings = db.prepare('SELECT * FROM mssp_settings WHERE id = ?').get('singleton');
   // Remove timezone from settings response
   if (settings) delete settings.timezone;
+  if (settings) {
+    settings.la_has_shared_key = !!settings.la_shared_key_encrypted;
+    delete settings.la_shared_key_encrypted;
+  }
   res.json(settings || {
     company_name: '', logo_path: null, logo_url: null, brand_hue: null,
-    baseline_label_template: '', tagline: '', report_theme: 'light', report_accent: ''
+    baseline_label_template: '', tagline: '', report_theme: 'light', report_accent: '',
+    la_enabled: 0, la_workspace_id: '', la_log_type_prefix: 'TrustM365', la_schema_version: '1.0',
+    la_ingest_drift: 1, la_ingest_restore: 1, la_ingest_jobs: 1, la_ingest_webhooks: 1, la_ingest_api_logs: 0,
+    la_has_shared_key: false,
   });
 });
 
 // ── PATCH /api/mssp/settings — update text fields ────────────────────────────
 router.patch('/mssp/settings', (req, res) => {
   const db = getDb();
-  const { company_name, baseline_label_template, brand_hue, tagline, report_accent } = req.body;
+  const {
+    company_name,
+    baseline_label_template,
+    brand_hue,
+    tagline,
+    report_accent,
+    la_enabled,
+    la_workspace_id,
+    la_shared_key,
+    la_clear_shared_key,
+    la_log_type_prefix,
+    la_schema_version,
+    la_ingest_drift,
+    la_ingest_restore,
+    la_ingest_jobs,
+    la_ingest_webhooks,
+    la_ingest_api_logs,
+  } = req.body;
+
+  const existing = db.prepare('SELECT la_shared_key_encrypted FROM mssp_settings WHERE id = ?').get('singleton') || {};
+
+  let sharedKeyEncrypted = existing.la_shared_key_encrypted || '';
+  if (la_clear_shared_key) {
+    sharedKeyEncrypted = '';
+  } else if (typeof la_shared_key === 'string' && la_shared_key.trim()) {
+    try {
+      sharedKeyEncrypted = encrypt(la_shared_key.trim());
+    } catch (err) {
+      return res.status(400).json({ error: `Failed to encrypt shared key: ${err.message}` });
+    }
+  }
+
   db.prepare(`
     UPDATE mssp_settings
     SET company_name=?, baseline_label_template=?, brand_hue=?,
         tagline=?, report_accent=?,
+        la_enabled=?, la_workspace_id=?, la_shared_key_encrypted=?, la_log_type_prefix=?,
+        la_schema_version=?, la_ingest_drift=?, la_ingest_restore=?, la_ingest_jobs=?,
+        la_ingest_webhooks=?, la_ingest_api_logs=?,
         updated_at=datetime('now')
     WHERE id='singleton'
   `).run(
@@ -79,9 +122,50 @@ router.patch('/mssp/settings', (req, res) => {
     baseline_label_template || '',
     brand_hue               || null,
     tagline                 || '',
-    report_accent           || ''
+    report_accent           || '',
+    la_enabled ? 1 : 0,
+    (la_workspace_id || '').trim(),
+    sharedKeyEncrypted,
+    sanitizeLogTypePrefix(la_log_type_prefix),
+    sanitizeSchemaVersion(la_schema_version),
+    la_ingest_drift === false ? 0 : 1,
+    la_ingest_restore === false ? 0 : 1,
+    la_ingest_jobs === false ? 0 : 1,
+    la_ingest_webhooks === false ? 0 : 1,
+    la_ingest_api_logs ? 1 : 0
   );
   res.json({ message: 'Settings saved' });
+});
+
+router.post('/mssp/log-analytics/test', async (req, res) => {
+  const body = req.body || {};
+  let sharedKeyEncrypted = null;
+  if (typeof body.la_shared_key === 'string' && body.la_shared_key.trim()) {
+    try {
+      sharedKeyEncrypted = encrypt(body.la_shared_key.trim());
+    } catch (err) {
+      return res.status(400).json({ error: `Failed to encrypt shared key: ${err.message}` });
+    }
+  }
+
+  const overrides = {
+    enabled: body.la_enabled !== undefined ? !!body.la_enabled : undefined,
+    workspaceId: body.la_workspace_id,
+    logTypePrefix: body.la_log_type_prefix,
+    schemaVersion: body.la_schema_version,
+    sharedKeyEncrypted,
+    categories: {
+      jobs: true,
+    },
+  };
+
+  try {
+    await testConnection(overrides);
+    res.json({ success: true, message: 'Connection test successful' });
+  } catch (err) {
+    logger.warn({ err }, 'Log Analytics connection test failed');
+    res.status(400).json({ success: false, error: err.message || 'Connection test failed' });
+  }
 });
 
 // ── POST /api/mssp/logo — upload a custom logo ───────────────────────────────
@@ -127,6 +211,10 @@ router.post('/mssp/reset', (req, res) => {
     UPDATE mssp_settings
     SET company_name='', logo_url=NULL, brand_hue=NULL, baseline_label_template='',
         tagline='', report_theme='dark', report_accent='',
+        la_enabled=0, la_workspace_id='', la_shared_key_encrypted='',
+        la_log_type_prefix='TrustM365', la_schema_version='1.0',
+        la_ingest_drift=1, la_ingest_restore=1, la_ingest_jobs=1,
+        la_ingest_webhooks=1, la_ingest_api_logs=0,
         updated_at=datetime('now')
     WHERE id='singleton'
   `).run();

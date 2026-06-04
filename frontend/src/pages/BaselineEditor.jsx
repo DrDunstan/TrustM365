@@ -6,6 +6,7 @@ import {
   CheckSquare, Square, Ban, Trash2, RotateCcw, Clock, ArrowLeft
 } from 'lucide-react'
 import { areaApi, tenantApi, msspApi } from '../api/client.js'
+import ErrorBoundary from '../components/ErrorBoundary.jsx'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function getByPath(obj, path) {
@@ -353,9 +354,9 @@ export default function BaselineEditor({ showToast }) {
     try {
       const baseline = await areaApi.getBaseline(tenantId, areaKey)
       setHasExisting(true)
-      setAllResources(baseline.resources)
+      setAllResources(baseline.resources || {})
       const excluded = baseline.excluded_resources || []
-      setIncludedIds(new Set(Object.keys(baseline.resources).filter(id => !excluded.includes(id))))
+      setIncludedIds(new Set(Object.keys(baseline.resources || {}).filter(id => !excluded.includes(id))))
       // Per-resource watched keys: stored as array of {path} or flat strings in watched_keys
       // We store per-resource keys separately in resourceWatchedKeys
       const savedModes = baseline.resource_modes || {}
@@ -363,7 +364,7 @@ export default function BaselineEditor({ showToast }) {
       // Migrate legacy global watched_keys → apply to all properties-mode resources
       const legacyKeys = (baseline.watched_keys || []).map(k => typeof k === 'string' ? k : k.path)
       const perResourceKeys = {}
-      for (const [id, res] of Object.entries(baseline.resources)) {
+      for (const [id, res] of Object.entries(baseline.resources || {})) {
         if (savedModes[id] === 'properties') {
           perResourceKeys[id] = legacyKeys.length > 0 ? legacyKeys : []
         }
@@ -506,6 +507,7 @@ export default function BaselineEditor({ showToast }) {
     : excludedList
 
   return (
+    <ErrorBoundary>
     <div className="p-6 max-w-5xl mx-auto space-y-5">
 
       {/* Header */}
@@ -660,6 +662,18 @@ export default function BaselineEditor({ showToast }) {
                         Select All
                       </button>
                       <button
+                        onClick={() => {
+                          // Include every resource and set explicit properties-mode for all
+                          setIncludedIds(new Set(allResourceList.map(([id]) => id)))
+                          const nextModes = Object.fromEntries(allResourceList.map(([id]) => [id, 'properties']))
+                          setResourceModes(nextModes)
+                          // Clear any per-resource explicit watched keys so all non-meta fields are compared
+                          setResourceWatchedKeys({})
+                        }}
+                        className="text-xs text-gray-500 hover:text-brand-400 transition-colors px-1.5 py-0.5 rounded border border-gray-800 hover:border-brand-800/60">
+                        Include All (Properties)
+                      </button>
+                      <button
                         onClick={() => setIncludedIds(new Set())}
                         className="text-xs text-gray-500 hover:text-red-400 transition-colors px-1.5 py-0.5 rounded border border-gray-800 hover:border-red-900/60">
                         Deselect All
@@ -771,5 +785,6 @@ export default function BaselineEditor({ showToast }) {
         </>
       )}
     </div>
+    </ErrorBoundary>
   )
 }

@@ -1,0 +1,18 @@
+{
+  "device3": {
+    "id": "device3",
+    "displayName": "Device 3",
+    "settings": [
+      {
+        "settingDefinitionId": "device_vendor_msft_policy_config_defender_enablenetworkprotection",
+        "name": "device_vendor_msft_policy_config_defender_enablenetworkprotection_1",
+        "value": 1
+      },
+      {
+        "settingDefinitionId": "device_vendor_msft_policy_config_defender_allowarchivescanning",
+        "name": "device_vendor_msft_policy_config_defender_allowarchivescanning_1",
+        "value": "device_vendor_msft_policy_config_defender_allowarchivescanning_1"
+      }
+    ]
+  }
+}

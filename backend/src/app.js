@@ -4,11 +4,14 @@ const helmet = require('helmet');
 const logger = require('./utils/logger');
 const tenantsRouter      = require('./routes/tenants');
 const areasRouter        = require('./routes/areas');
-const templatesRouter    = require('./routes/templates');
+const templatesRouter    = require('./routes/securityTemplates');
+const referenceTemplatesRouter = require('./routes/referenceTemplates');
 const miscRouter         = require('./routes/misc');
 const customCollectorsRouter = require('./routes/customCollectors');
 const reportsRouter      = require('./routes/reports');
 const webhooksRouter     = require('./routes/webhooks');
+const appRegistrationsRouter = require('./routes/appRegistrations');
+const { emitSiemEvent } = require('./services/logAnalytics');
 
 const app = express();
 app.use(helmet({ contentSecurityPolicy: false }));
@@ -29,12 +32,29 @@ const allowedOrigins = isDev
 
 app.use(cors({ origin: allowedOrigins, credentials: true }));
 app.use(express.json({ limit: '5mb' }));
-app.use((req, _res, next) => { logger.info({ method: req.method, url: req.url }, 'Request'); next(); });
+app.use((req, res, next) => {
+  const startedAt = Date.now();
+  logger.info({ method: req.method, url: req.url }, 'Request');
+  res.on('finish', () => {
+    emitSiemEvent('api_logs', 'api.request', {
+      method: req.method,
+      url: req.originalUrl || req.url,
+      statusCode: res.statusCode,
+      durationMs: Date.now() - startedAt,
+      ip: req.ip,
+    });
+  });
+  next();
+});
 
 app.use('/api/tenants',           tenantsRouter);
 app.use('/api/areas',             areasRouter);
+// Mount both legacy and new routes for compatibility. New preferred path: /api/security-templates
+app.use('/api/security-templates', templatesRouter);
 app.use('/api/templates',         templatesRouter);
+app.use('/api/reference-templates', referenceTemplatesRouter);
 app.use('/api/custom-collectors', customCollectorsRouter);
+app.use('/api/app-registrations', appRegistrationsRouter);
 app.use('/api/reports',           reportsRouter);
 app.use('/api/webhooks',          webhooksRouter);
 app.use('/api',                   miscRouter);   // handles /api/jobs/:id and /api/mssp/*

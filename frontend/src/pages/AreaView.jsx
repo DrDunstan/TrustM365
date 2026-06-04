@@ -9,16 +9,310 @@ import {
 } from 'lucide-react'
 import { areaApi, tenantApi } from '../api/client.js'
 import { usePollJob } from '../hooks/usePollJob.js'
+import { applyImpliedRead } from '../utils/permissions.js'
 
 // ── Value formatter ───────────────────────────────────────────────────────────
-function formatValue(val) {
-  if (val === undefined || val === null)
-    return <span className="italic text-gray-600">{val === undefined ? 'not present' : 'null'}</span>
-  if (typeof val === 'object')
-    return <span className="font-mono text-xs break-all">{JSON.stringify(val, null, 1)}</span>
-  if (typeof val === 'boolean')
-    return <span className={`font-mono font-bold ${val ? 'text-green-400' : 'text-red-400'}`}>{String(val)}</span>
-  return <span className="font-mono text-xs break-all">{String(val)}</span>
+
+function ObjectPreview({ value, depth = 0, maxDepth = 3, forceOpen = false }) {
+
+  // Guard against explicit null/undefined which `typeof` reports as 'object' for null
+  if (value === null) return <span className="text-xs font-mono">null</span>
+  if (value === undefined) return <span className="text-xs font-mono">—</span>
+
+  // Admin Consent Request Policy — concise summary
+    if (value && (value.notifyReviewers !== undefined || value.remindersEnabled !== undefined || value.requestDurationInDays !== undefined || value.reviewers !== undefined)) {
+      const enabled = value.isEnabled === true ? true : (value.isEnabled === false ? false : null);
+      const notify = value.notifyReviewers;
+      const reminders = value.remindersEnabled;
+      const reqDur = value.requestDurationInDays ?? null;
+      const reviewers = Array.isArray(value.reviewers) ? value.reviewers : (Array.isArray(notify) ? notify : []);
+      return (
+        <details className="text-xs" open={forceOpen}>
+          <summary className="cursor-pointer text-gray-400">Admin Consent Request Policy — {enabled === true ? 'Enabled' : enabled === false ? 'Disabled' : 'Configuration'}</summary>
+          <div className="pl-3 mt-1 space-y-1 text-xs text-gray-400">
+            <div>Notify reviewers: <strong className="text-white">{Array.isArray(notify) ? `${notify.length} configured` : (notify ? String(notify) : 'No')}</strong></div>
+            <div>Reminders: <strong className="text-white">{reminders ? 'Enabled' : 'Disabled'}</strong></div>
+            <div>Request duration (days): <strong className="text-white">{reqDur ?? '—'}</strong></div>
+            <div>Reviewers: <strong className="text-white">{Array.isArray(reviewers) ? reviewers.length : (reviewers ? 1 : 0)}</strong></div>
+            <div className="pt-1">
+              <details className="text-xs" open={forceOpen}><summary className="cursor-pointer text-gray-500">Full policy JSON</summary>
+                <div className="pl-3 mt-1 text-xs text-gray-400"><ObjectPreview value={value} depth={depth+1} maxDepth={maxDepth} forceOpen={forceOpen} /></div>
+              </details>
+            </div>
+          </div>
+        </details>
+      );
+    }
+
+    // Authorization / AuthorizationPolicy — show top-level allow/SSPR invites flags
+    if (value && (value.allowInvitesFrom !== undefined || value.allowedToUseSSPR !== undefined || value.allowEmailVerifiedUsersToJoinOrganization !== undefined || value.guestUserRoleId !== undefined)) {
+      return (
+        <details className="text-xs" open={forceOpen}>
+          <summary className="cursor-pointer text-gray-400">Authorization Policy</summary>
+          <div className="pl-3 mt-1 space-y-1 text-xs text-gray-400">
+            {value.allowInvitesFrom !== undefined && <div>Allow invites from: <strong className="text-white">{humanizeAllowInvitesFrom(value.allowInvitesFrom)}</strong></div>}
+            {value.allowedToUseSSPR !== undefined && <div>Self-service password reset: <strong className="text-white">{value.allowedToUseSSPR ? 'Allowed' : 'Blocked'}</strong></div>}
+            {value.allowEmailVerifiedUsersToJoinOrganization !== undefined && <div>Email-verified join: <strong className="text-white">{value.allowEmailVerifiedUsersToJoinOrganization ? 'Allowed' : 'Blocked'}</strong></div>}
+            {value.guestUserRoleId && <div>Guest user role id: <strong className="text-white">{String(value.guestUserRoleId)}</strong></div>}
+            <div className="pt-1">
+              <details className="text-xs" open={forceOpen}><summary className="cursor-pointer text-gray-500">Full policy JSON</summary>
+                <div className="pl-3 mt-1 text-xs text-gray-400"><ObjectPreview value={value} depth={depth+1} maxDepth={maxDepth} forceOpen={forceOpen} /></div>
+              </details>
+            </div>
+          </div>
+        </details>
+      );
+    }
+
+    // device management choice setting instance
+    const sd = value?.settingDefinitionId || value?.settingInstance?.settingDefinitionId || null;
+
+  if (typeof value === 'boolean')
+    return <span className={`font-mono font-bold ${value ? 'text-green-400' : 'text-red-400'}`}>{String(value)}</span>
+
+  if (typeof value !== 'object')
+    return <span className="font-mono text-xs break-all">{String(value)}</span>
+
+  // Arrays — show a summary and allow expansion
+  if (Array.isArray(value)) {
+    const len = value.length;
+    return (
+      <details className="text-xs" open={forceOpen}>
+        <summary className="cursor-pointer text-gray-400">Array[{len}] {len > 0 ? '(expand)' : ''}</summary>
+        <div className="pl-3 mt-1 space-y-1">
+          {value.slice(0, 50).map((v, i) => (
+            <div key={i} className="flex items-start gap-3">
+              <div className="text-gray-500 text-xs w-10 truncate">[{i}]</div>
+              <div className="flex-1"><ObjectPreview value={v} depth={depth + 1} maxDepth={maxDepth} forceOpen={forceOpen} /></div>
+            </div>
+          ))}
+          {len > 50 && <div className="text-xs text-gray-500">... {len - 50} more</div>}
+        </div>
+      </details>
+    );
+  }
+
+  // Objects — collapse when deep
+  // Special-cases: Admin Consent, Entra Authentication Methods Policy and common setting shapes (Intune/MDM)
+  try {
+    // Admin Consent Request Policy
+    if (value && (value.notifyReviewers !== undefined || value.requestDurationInDays !== undefined || value.remindersEnabled !== undefined)) {
+      const summ = summarizeAdminConsentPolicy(value);
+      return (
+        <details className="text-xs" open={forceOpen}>
+          <summary className="cursor-pointer text-gray-400">Admin Consent Request Policy</summary>
+          <div className="pl-3 mt-1 text-xs text-gray-400 space-y-1">
+            <div>Enabled: <strong className="text-white">{summ?.isEnabled === true ? 'Yes' : summ?.isEnabled === false ? 'No' : '—'}</strong></div>
+            <div>Reminders enabled: <strong className="text-white">{summ?.remindersEnabled === true ? 'Yes' : summ?.remindersEnabled === false ? 'No' : '—'}</strong></div>
+            <div>Request duration (days): <strong className="text-white">{summ?.requestDurationInDays ?? '—'}</strong></div>
+            <div>Reviewers: <strong className="text-white">{Array.isArray(summ?.reviewers) ? summ.reviewers.length : (summ?.reviewers ? '1' : '0')}</strong></div>
+            {Array.isArray(summ?.reviewers) && summ.reviewers.length > 0 && (
+              <div className="mt-1 text-xs text-gray-300 space-y-0.5">{summ.reviewers.slice(0,10).map((r, i) => <div key={i}>{r}</div>)}</div>
+            )}
+          </div>
+        </details>
+      );
+    }
+
+    // Entra Authentication Methods Policy — concise summary + configurations
+    if (value && (value.registrationEnforcement || Array.isArray(value.authenticationMethodConfigurations) || Array.isArray(value.authenticationMethodsConfigurations))) {
+      const reg = value.registrationEnforcement || null;
+      const cfgs = value.authenticationMethodConfigurations || value.authenticationMethodsConfigurations || [];
+      const regSummary = humanizeRegistrationEnforcement(reg);
+      return (
+        <details className="text-xs" open={forceOpen}>
+          <summary className="cursor-pointer text-gray-400">Authentication Methods Policy — {Array.isArray(cfgs) ? cfgs.length : 0} configuration{Array.isArray(cfgs) && cfgs.length!==1?'s':''}</summary>
+          <div className="pl-3 mt-1 space-y-1">
+            {regSummary && (
+              <div className="text-xs text-gray-400 space-y-1">
+                {regSummary.campaign && <div>Campaign: <strong className="text-white">{humanizeLabel(regSummary.campaign)}</strong></div>}
+                <div>State: <strong className="text-white">{regSummary.state ? humanizeLabel(regSummary.state) : '—'}</strong></div>
+                <div>Snooze (days): <strong className="text-white">{regSummary.snoozeDays ?? '—'}</strong></div>
+                <div>Include targets: <strong className="text-white">{Array.isArray(regSummary.includeTargets) ? regSummary.includeTargets.length : 0}</strong></div>
+                <div>Exclude targets: <strong className="text-white">{Array.isArray(regSummary.excludeTargets) ? regSummary.excludeTargets.length : 0}</strong></div>
+              </div>
+            )}
+            {Array.isArray(cfgs) && cfgs.length > 0 && (
+              <div className="space-y-1">
+                {cfgs.map((c, i) => {
+                  const s = summarizeAuthConfig(c) || { name: `Config ${i+1}` };
+                  return (
+                    <details key={i} className="text-xs" open={forceOpen}>
+                      <summary className="cursor-pointer text-gray-300">{s.name}{s.state ? ` — ${s.state}` : ''}</summary>
+                      <div className="pl-3 mt-1 text-xs text-gray-400">
+                        <ObjectPreview value={c} depth={depth+1} maxDepth={maxDepth} forceOpen={forceOpen} />
+                      </div>
+                    </details>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </details>
+      );
+    }
+
+    // device management choice setting instance
+    const sd = value.settingDefinitionId || value.settingInstance?.settingDefinitionId || value.settingInstance?.settingDefinitionId;
+    if (sd) {
+      const defLabel = humanizeSettingDefinitionId(sd);
+      const choiceVal = value?.choiceSettingValue?.value || value?.settingInstance?.choiceSettingValue?.value || null;
+      const choiceLabel = choiceVal ? humanizeChoiceValue(choiceVal) : null;
+      return (
+        <details className="text-xs" open={forceOpen}>
+          <summary className="cursor-pointer text-gray-400">{defLabel}{choiceLabel ? ` — ${choiceLabel}` : ''}</summary>
+          <div className="pl-3 mt-1 space-y-1">
+            {value?.id !== undefined && <div className="text-xs text-gray-400">ID: {String(value.id)}</div>}
+            {value?.settingInstance && <div className="text-xs text-gray-400">Instance: <ObjectPreview value={value.settingInstance} depth={depth+1} maxDepth={maxDepth} forceOpen={forceOpen} /></div>}
+            {Object.keys(value || {}).filter(k => !['id','settingDefinitionId','choiceSettingValue','settingInstance'].includes(k)).map(k => (
+              <div key={k} className="flex items-start gap-3 text-xs">
+                <div className="text-gray-500 w-36">{makeLabelFromPath(k)}</div>
+                <div className="flex-1"><ObjectPreview value={value[k]} depth={depth+1} maxDepth={maxDepth} forceOpen={forceOpen} /></div>
+              </div>
+            ))}
+          </div>
+        </details>
+      );
+    }
+  } catch (e) { /* fall through to generic rendering */ }
+
+  if (depth >= maxDepth) {
+    try {
+      return <pre className="text-xs font-mono break-all">{JSON.stringify(value, null, 2)}</pre>;
+    } catch { return <span className="text-xs font-mono">[object]</span>; }
+  }
+
+  const entries = Object.entries(value || {}).slice(0, 200);
+  return (
+    <details className="text-xs" open={forceOpen}>
+      <summary className="cursor-pointer text-gray-400">Object {entries.length ? '' : '(empty)'}</summary>
+      <div className="pl-3 mt-1 space-y-1">
+        {entries.map(([k, v]) => (
+          <div key={k} className="flex items-start gap-3">
+            <div className="text-gray-500 text-xs w-44 truncate">{k}</div>
+            <div className="flex-1"><ObjectPreview value={v} depth={depth + 1} maxDepth={maxDepth} forceOpen={forceOpen} /></div>
+          </div>
+        ))}
+      </div>
+    </details>
+  );
+}
+
+function formatValue(val, opts = {}) {
+  return <ObjectPreview value={val} forceOpen={!!opts.forceOpen} />;
+}
+
+// Default max depth when flattening nested properties for comparison rows.
+const DEFAULT_FLATTEN_MAX_DEPTH = 3;
+
+function humanizeLabel(s) {
+  if (!s) return '';
+  const t = String(s).replace(/[_-]+/g, ' ').trim();
+  // Insert space between camelCase boundaries
+  const spaced = t.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/([A-Z])([A-Z][a-z])/g, '$1 $2');
+  // Title case
+  return spaced.split(' ').filter(Boolean).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+}
+
+function makeLabelFromPath(path) {
+  const segs = String(path).split('.').filter(Boolean);
+  if (segs.length >= 2) {
+    return `${humanizeLabel(segs[0])} — ${humanizeLabel(segs[segs.length - 1])}`;
+  }
+  return humanizeLabel(segs[0] || path);
+}
+
+function splitKnownWords(token) {
+  if (!token) return token;
+  const dict = ['require','allow','configure','recovery','password','rotation','warning','other','disk','encryption','device','msft','bitlocker','allowwarning','for','allowwarningfor','allowwarningforother','allowwarningforotherdiskencryption'];
+  const lower = token.toLowerCase();
+  const parts = [];
+  let pos = 0;
+  // Sort dictionary by length descending for greedy match
+  const sorted = [...dict].sort((a,b) => b.length - a.length);
+  while (pos < lower.length) {
+    let matched = false;
+    for (const w of sorted) {
+      if (lower.startsWith(w, pos)) {
+        parts.push(w);
+        pos += w.length;
+        matched = true;
+        break;
+      }
+    }
+    if (!matched) {
+      // no known word matched — take the rest and break
+      parts.push(lower.slice(pos));
+      break;
+    }
+  }
+  return parts.map(p => p === 'msft' ? 'Microsoft' : (p === 'bitlocker' ? 'BitLocker' : humanizeLabel(p))).join(' ');
+}
+
+function humanizeSettingDefinitionId(id) {
+  if (!id) return '';
+  const tokens = String(id).split(/[_-]+/).filter(Boolean);
+  if (tokens.length === 1) {
+    // try to split known compound words
+    return splitKnownWords(tokens[0]);
+  }
+  return tokens.map(t => (t.toLowerCase() === 'msft' ? 'Microsoft' : humanizeLabel(t))).join(' ');
+}
+
+function humanizeChoiceValue(val) {
+  if (!val) return '';
+  // choice values sometimes include tokens and suffixes — trim trailing numeric suffixes
+  const cleaned = String(val).replace(/_\d+$/, '').replace(/_/g, ' ');
+  return humanizeLabel(cleaned);
+}
+
+function humanizeRegistrationEnforcement(re) {
+  if (!re || typeof re !== 'object') return null;
+  return {
+    campaign: re.authenticationMethodsRegistrationCampaign || re.authenticationMethodsRegistrationCampaign || null,
+    snoozeDays: re.snoozeDurationInDays ?? null,
+    state: re.state || null,
+    includeTargets: Array.isArray(re.includeTargets) ? re.includeTargets : (Array.isArray(re.includeTargets) ? re.includeTargets : []),
+    excludeTargets: Array.isArray(re.excludeTargets) ? re.excludeTargets : (Array.isArray(re.excludeTargets) ? re.excludeTargets : []),
+  };
+}
+
+function summarizeAuthConfig(cfg) {
+  if (!cfg || typeof cfg !== 'object') return null;
+  const name = cfg.displayName || cfg.id || cfg.name || cfg.authenticatorType || `Config ${cfg.id || ''}`;
+  const state = cfg.state || (cfg.isEnabled === false ? 'Disabled' : (cfg.isEnabled === true ? 'Enabled' : null));
+  return { name: humanizeLabel(name), state };
+}
+
+function summarizeAdminConsentPolicy(policy) {
+  if (!policy || typeof policy !== 'object') return null;
+  const notify = policy.notifyReviewers || policy.notifyReviewers?.reviewers || null;
+  const reviewers = Array.isArray(notify) ? notify.map(r => (r?.displayName || r?.id || String(r))) : (notify && notify.reviewers ? notify.reviewers.map(r => (r?.displayName || r?.id || String(r))) : null);
+  return {
+    isEnabled: policy.isEnabled ?? null,
+    remindersEnabled: policy.remindersEnabled ?? null,
+    requestDurationInDays: policy.requestDurationInDays ?? null,
+    reviewers: reviewers || null,
+  };
+}
+
+function summarizeAuthMethodTemplate(cfg) {
+  if (!cfg || typeof cfg !== 'object') return null;
+  const name = cfg.displayName || cfg.id || cfg.name || cfg.authenticationMethodId || cfg.authenticatorType || null;
+  const state = cfg.state || (cfg.isEnabled === false ? 'Disabled' : (cfg.isEnabled === true ? 'Enabled' : null));
+  const target = cfg.target || cfg.authenticationMethodTarget || cfg.includes?.length ? cfg.includes : null;
+  return { name: humanizeLabel(name), state, target };
+}
+
+function humanizeAllowInvitesFrom(val) {
+  if (!val) return 'None';
+  const map = {
+    none: 'No invites',
+    adminsAndGuestInviters: 'Admins & Guest Inviters',
+    adminsGuestInvitersAndAllMembers: 'Admins, Guest Inviters & All Members',
+    everyone: 'Everyone',
+  };
+  return map[val] || humanizeLabel(val);
 }
 
 function getByPath(obj, path) {
@@ -26,19 +320,19 @@ function getByPath(obj, path) {
 }
 
 // ── Property comparison row ───────────────────────────────────────────────────
-function PropRow({ label, baselineVal, liveVal, hasDrift, onRestore, restoring, monitorOnly }) {
+function PropRow({ label, baselineVal, liveVal, hasDrift, onRestore, restoring, monitorOnly, expandAll }) {
   return (
     <div className={`grid grid-cols-[1fr_24px_1fr] gap-1 items-start px-3 py-2 rounded-lg text-xs
       ${hasDrift ? 'bg-red-950/20 border border-red-900/40' : 'bg-gray-900/40 border border-transparent'}`}>
       <div className="min-w-0">
         <div className="text-gray-600 text-xs mb-0.5 font-medium truncate">{label}</div>
-        <div className={hasDrift ? 'text-green-300' : 'text-gray-400'}>{formatValue(baselineVal)}</div>
+        <div className={hasDrift ? 'text-green-300' : 'text-gray-400'}>{formatValue(baselineVal, { forceOpen: expandAll })}</div>
       </div>
       <div className="flex items-center justify-center pt-5">
         <ArrowRight size={12} className={hasDrift ? 'text-red-600' : 'text-gray-700'} />
       </div>
       <div className="min-w-0 flex items-start justify-between gap-1">
-        <div className={hasDrift ? 'text-red-300' : 'text-gray-400'}>{formatValue(liveVal)}</div>
+        <div className={hasDrift ? 'text-red-300' : 'text-gray-400'}>{formatValue(liveVal, { forceOpen: expandAll })}</div>
         {hasDrift && monitorOnly && (
           <span title="This field is monitored for changes but cannot be restored via the Graph API. Update it manually in the Microsoft 365 admin centre."
             className="shrink-0 flex items-center gap-1 text-xs text-amber-500/70 border border-amber-900/40 px-1.5 py-0.5 rounded cursor-help">
@@ -60,9 +354,10 @@ function PropRow({ label, baselineVal, liveVal, hasDrift, onRestore, restoring, 
 function ResourceCard({
   resourceId, resourceName, baselineResource, liveResource,
   watchedKeys, driftItem, onRestore, restoring, hasBaseline, defaultOpen,
-  monitorOnlyKeys
+  monitorOnlyKeys, resourceDetails, areaKey
 }) {
   const [open, setOpen] = useState(defaultOpen)
+  const [expandAll, setExpandAll] = useState(false)
 
   const status = driftItem?.status || (
     !hasBaseline       ? 'no-baseline'
@@ -74,14 +369,49 @@ function ResourceCard({
   const driftedPaths = new Set((driftItem?.drifts || []).map(d => d.path))
   const driftCount   = driftItem?.drifts?.length || 0
 
+  // Surface area-specific summary badges when available on liveResource
+  const anonCount = liveResource?.anonymousLinkCount ?? null
+  const externalShareCount = liveResource?.externalShareCount ?? null
+  const guestCount = (areaKey === 'teams_membership') ? null : (liveResource?.guestCount ?? null)
+  const installedAppCount = liveResource?.installedAppCount ?? null
+  const showAnonExtBadges = areaKey !== 'sharepoint_sites'
+
   // Props to show in the comparison
-  const propsToShow = watchedKeys.length > 0
-    ? watchedKeys
+  function normalizeWatchedKeys(keys) {
+    if (!Array.isArray(keys) || keys.length === 0) return [];
+    return keys.map(k => {
+      if (typeof k === 'string') return { path: k, label: makeLabelFromPath(k) };
+      if (k && k.path) return { path: k.path, label: k.label || makeLabelFromPath(k.path) };
+      return null;
+    }).filter(Boolean);
+  }
+
+  function flattenProps(obj, prefix = '', depth = 0, maxDepth = DEFAULT_FLATTEN_MAX_DEPTH, maxEntries = 200) {
+    const out = [];
+    if (!obj || typeof obj !== 'object') return out;
+    const exclude = new Set(['id','createdDateTime','lastModifiedDateTime','modifiedDateTime','renewedDateTime']);
+    const keys = Object.keys(obj || {});
+    for (const key of keys) {
+      const base = key;
+      const path = prefix ? `${prefix}.${key}` : key;
+      if (exclude.has(base)) continue;
+      const val = obj[key];
+      out.push({ path, label: makeLabelFromPath(path) });
+      if (val && typeof val === 'object' && !Array.isArray(val) && depth < maxDepth) {
+        const child = flattenProps(val, path, depth + 1, maxDepth, maxEntries - out.length);
+        out.push(...child);
+      }
+      if (out.length >= maxEntries) break;
+    }
+    const seen = new Set();
+    return out.filter(item => { if (seen.has(item.path)) return false; seen.add(item.path); return true; });
+  }
+
+  const propsToShow = (watchedKeys && watchedKeys.length > 0)
+    ? normalizeWatchedKeys(watchedKeys)
     : (baselineResource || liveResource)
-      ? Object.keys(baselineResource || liveResource)
-          .filter(k => !['id','createdDateTime','lastModifiedDateTime','modifiedDateTime','renewedDateTime'].includes(k))
-          .map(k => ({ path: k, label: k }))
-      : []
+      ? flattenProps(baselineResource || liveResource, '', 0, 2)
+      : [];
 
   const statusCfg = {
     clean:            { border: 'border-green-900/30',  bg: 'bg-green-950/10',  icon: <CheckCircle size={14} className="text-green-400"/>,  label: 'Clean' },
@@ -104,6 +434,23 @@ function ResourceCard({
               : driftItem?.monitorMode === 'properties'
               ? <span className="flex items-center gap-1 text-xs bg-brand-950/60 border border-brand-800/60 text-brand-300 px-2 py-0.5 rounded-full"><SlidersHorizontal size={9}/> Properties</span>
               : null}
+
+            {((showAnonExtBadges && (anonCount !== null || externalShareCount !== null)) || (areaKey !== 'teams_membership' && guestCount !== null) || installedAppCount !== null) && (
+              <div className="flex items-center gap-2 mt-1 flex-wrap">
+                {showAnonExtBadges && anonCount !== null && (
+                  <span className="text-xs text-gray-400 bg-gray-900/20 border border-gray-800/50 px-2 py-0.5 rounded-full">Anon {anonCount}</span>
+                )}
+                {showAnonExtBadges && externalShareCount !== null && (
+                  <span className="text-xs text-gray-400 bg-gray-900/20 border border-gray-800/50 px-2 py-0.5 rounded-full">Ext {externalShareCount}</span>
+                )}
+                {areaKey !== 'teams_membership' && guestCount !== null && (
+                  <span className="text-xs text-gray-400 bg-gray-900/20 border border-gray-800/50 px-2 py-0.5 rounded-full">Guests {guestCount}</span>
+                )}
+                {installedAppCount !== null && (
+                  <span className="text-xs text-gray-400 bg-gray-900/20 border border-gray-800/50 px-2 py-0.5 rounded-full">Apps {installedAppCount}</span>
+                )}
+              </div>
+            )}
           </div>
           <span className={`text-xs ${status==='drifted'?'text-red-400':status==='not-in-baseline'?'text-gray-500':status==='missing'?'text-orange-400':'text-gray-600'}`}>
             {statusCfg.label}
@@ -165,6 +512,16 @@ function ResourceCard({
             </div>
           )}
 
+          <div className="flex justify-between pb-2">
+            <div>
+              <button onClick={(e) => { e.stopPropagation(); setExpandAll(v => !v); }}
+                className="text-xs text-gray-400 bg-gray-900/20 border border-gray-800/50 px-2 py-0.5 rounded">
+                {expandAll ? 'Collapse all' : 'Expand all'}
+              </button>
+            </div>
+            <div />
+          </div>
+
           {propsToShow.map(({ path, label }) => {
             const bVal = baselineResource ? getByPath(baselineResource, path) : undefined
             const lVal = liveResource     ? getByPath(liveResource,    path) : undefined
@@ -174,12 +531,50 @@ function ResourceCard({
               <PropRow key={path} label={label} baselineVal={bVal} liveVal={lVal} hasDrift={hasDrift}
                 onRestore={hasDrift && onRestore && !isMonitorOnly ? () => onRestore(resourceId, path) : null}
                 restoring={restoring[`${resourceId}:${path}`]}
-                monitorOnly={isMonitorOnly}/>
+                monitorOnly={isMonitorOnly}
+                expandAll={expandAll} />
             )
           })}
 
           {propsToShow.length === 0 && (
             <p className="text-xs text-gray-600 px-3">No properties to display.</p>
+          )}
+
+          {resourceDetails && resourceDetails[resourceId] && (
+            <div className="pt-3 border-t border-gray-800/40 mt-2 px-3 space-y-2 text-xs">
+              <div className="text-sm font-semibold text-white">Mailbox details</div>
+              {resourceDetails[resourceId].mailboxSettings && (
+                <div>
+                  <div className="text-xs text-gray-400">Mailbox settings</div>
+                  <div className="mt-1"><ObjectPreview value={resourceDetails[resourceId].mailboxSettings} /></div>
+                </div>
+              )}
+
+              {resourceDetails[resourceId].forwardingRules && (
+                <div>
+                  <div className="text-xs text-gray-400 mt-2">Forwarding rules</div>
+                  <div className="mt-1 space-y-1">
+                    {resourceDetails[resourceId].forwardingRules.map(fr => (
+                      <div key={fr.id} className="text-xs text-gray-200">{fr.displayName || fr.id}</div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {resourceDetails[resourceId].messageRules && (
+                <div>
+                  <div className="text-xs text-gray-400 mt-2">Inbox message rules</div>
+                  <div className="mt-1"><ObjectPreview value={resourceDetails[resourceId].messageRules} /></div>
+                </div>
+              )}
+
+              {resourceDetails[resourceId].inferenceClassification && (
+                <div>
+                  <div className="text-xs text-gray-400 mt-2">Inference classification</div>
+                  <div className="mt-1"><ObjectPreview value={resourceDetails[resourceId].inferenceClassification} /></div>
+                </div>
+              )}
+            </div>
           )}
         </div>
       )}
@@ -188,7 +583,7 @@ function ResourceCard({
 }
 
 // ── Resource group section ────────────────────────────────────────────────────
-function ResourceGroup({ group, resourceIds, liveResources, baselineResources, watchedKeys, driftMap, onRestore, restoring, hasBaseline, monitorOnlyKeys }) {
+function ResourceGroup({ group, resourceIds, liveResources, baselineResources, watchedKeys, driftMap, onRestore, restoring, hasBaseline, monitorOnlyKeys, resourceDetails, areaKey }) {
   const [open, setOpen] = useState(true)
   const driftedInGroup = resourceIds.filter(id => driftMap[id]?.status === 'drifted').length
   const totalInGroup   = resourceIds.length
@@ -220,7 +615,9 @@ function ResourceGroup({ group, resourceIds, liveResources, baselineResources, w
           restoring={restoring}
           hasBaseline={hasBaseline}
           monitorOnlyKeys={monitorOnlyKeys}
-          defaultOpen={driftMap[id]?.status === 'drifted'}/>
+          defaultOpen={driftMap[id]?.status === 'drifted'}
+          resourceDetails={resourceDetails}
+          areaKey={areaKey} />
       ))}
     </div>
   )
@@ -242,6 +639,15 @@ export default function AreaView({ showToast, onSync }) {
   const { tenantId, areaKey } = useParams()
   const navigate = useNavigate()
 
+  // Block navigation to legacy removed collector
+  useEffect(() => {
+    if (areaKey === 'teams_teams') {
+      navigate('/', { replace: true })
+    }
+  }, [areaKey, navigate])
+
+  const { timezone } = useBranding()
+
   const [tenant,      setTenant]      = useState(null)
   const [area,        setArea]        = useState(null)
   const [perm,        setPerm]        = useState(null)
@@ -257,6 +663,8 @@ export default function AreaView({ showToast, onSync }) {
   const [loading,     setLoading]     = useState(true)
   const [resourceSearch,       setResourceSearch]       = useState('')
   const [resourceStatusFilter, setResourceStatusFilter] = useState('all') // all | drifted | clean
+  const [resourceDetails,      setResourceDetails]      = useState({})
+  const [resourceDetailsLoading, setResourceDetailsLoading] = useState({})
   const { poll } = usePollJob()
 
   // ── Load metadata ──────────────────────────────────────────────────────────
@@ -282,12 +690,21 @@ export default function AreaView({ showToast, onSync }) {
     const src = t || tenant
     if (src?.permissions_json) {
       try {
-        const { areas: pa } = JSON.parse(src.permissions_json)
-        setPerm(pa?.find(p => p.areaKey === areaKey) || null)
-        return
+        const parsed = JSON.parse(src.permissions_json)
+        const pa = applyImpliedRead(parsed.areas || [], parsed.granted || [])
+        const hit = pa?.find(p => p.areaKey === areaKey) || null
+        if (hit) {
+          setPerm(hit)
+          return
+        }
       } catch {}
     }
-    setPerm(null)
+    tenantApi.getPermissions(tenantId)
+      .then(data => {
+        const pa = data.areas || []
+        setPerm(pa.find(p => p.areaKey === areaKey) || null)
+      })
+      .catch(() => setPerm(null))
   }
 
   const loadAreaData = async () => {
@@ -394,12 +811,45 @@ export default function AreaView({ showToast, onSync }) {
     if (jobId) poll(jobId, () => loadAreaData(), () => {}, () => loadAreaData())
   }
 
+  // Fetch per-resource details on-demand and cache them in component state
+  const fetchResourceDetails = async (resourceId, forceReload = false) => {
+    if (!tenantId || !areaKey) return null
+    if (!forceReload && resourceDetails[resourceId]) return resourceDetails[resourceId]
+    setResourceDetailsLoading(s => ({ ...s, [resourceId]: true }))
+    try {
+      const details = await areaApi.getResource(tenantId, areaKey, resourceId)
+      setResourceDetails(s => ({ ...s, [resourceId]: details }))
+      return details
+    } catch (err) {
+      showToast(err?.response?.data?.message || 'Failed to load resource details', 'error')
+      return null
+    } finally {
+      setResourceDetailsLoading(s => { const c = { ...s }; delete c[resourceId]; return c })
+    }
+  }
+
   const toggleAutoRestore = async () => {
     const next = !autoRestore
     await areaApi.setAutoRestore(tenantId, areaKey, next)
     setAutoRestore(next)
     showToast(`Auto-restore ${next ? 'enabled' : 'disabled'}`, 'success')
   }
+
+  // When a baseline exists, preload per-resource details for included resources
+  // This replaces the previous manual "Load details" button and ensures the
+  // UI has mailbox/collector-specific details available after a baseline is set.
+  useEffect(() => {
+    if (!baseline) return
+    const ids = Object.keys(baseline.resources || {})
+    if (ids.length === 0) return
+    const concurrency = 8
+    ;(async () => {
+      for (let i = 0; i < ids.length; i += concurrency) {
+        const batch = ids.slice(i, i + concurrency)
+        await Promise.all(batch.map(id => fetchResourceDetails(id, true).catch(() => null)))
+      }
+    })()
+  }, [baseline])
 
   // ── Guards ─────────────────────────────────────────────────────────────────
   if (loading) return (
@@ -411,8 +861,9 @@ export default function AreaView({ showToast, onSync }) {
     </div>
   )
 
-  const isLocked   = perm ? !perm.canRead  : false
-  const canRestore = !perm || perm.canWrite
+  const isLocked   = !(perm && perm.canRead)
+  const canRestore = (perm && (perm.canRestore ?? perm.canWrite)) || false
+  const restoreBlockedByCapability = perm?.restoreSupported === false
 
   if (isLocked) return (
     <div className="p-6 max-w-2xl mx-auto space-y-5">
@@ -429,11 +880,47 @@ export default function AreaView({ showToast, onSync }) {
       <div className="card border-gray-800/60 bg-gray-900/40 space-y-4 text-center py-10">
         <Lock size={40} className="text-gray-700 mx-auto"/>
         <p className="text-gray-400 font-medium">This area is locked</p>
-        <p className="text-gray-600 text-sm">Add the following permission to your App Registration and grant admin consent:</p>
-        <div className="flex flex-wrap justify-center gap-2">
-          {perm?.missingRead?.map(p => (
-            <code key={p} className="text-sm bg-gray-800 border border-gray-700 text-gray-300 px-3 py-1.5 rounded font-mono">{p}</code>
-          ))}
+        <p className="text-gray-600 text-sm">Required permissions for this area — add them to your App Registration and grant admin consent.</p>
+        {(perm?.missingPermissions || perm?.missingRead || []).length > 0 && (
+          <div className="mt-2 flex flex-wrap justify-center gap-2 items-center">
+            <span className="text-xs text-gray-400 mr-2">Requires:</span>
+            {(perm.missingPermissions || perm.missingRead || []).map(p => (
+              <code key={p} className="text-sm bg-gray-800 border border-gray-700 px-3 py-1.5 rounded font-mono text-red-300">{p}</code>
+            ))}
+          </div>
+        )}
+        <div className="flex flex-col gap-2 items-center">
+          <div className="flex flex-wrap justify-center gap-2 items-center">
+            <span className="text-xs text-gray-400 mr-2">Read:</span>
+            {(perm?.readPermissions || []).map(p => {
+              const missing = (perm?.missingRead || []).includes(p)
+              return (
+                <code key={p} className={`text-sm bg-gray-800 border border-gray-700 px-3 py-1.5 rounded font-mono ${missing ? 'text-red-300' : 'text-green-300'}`}>
+                  {p}
+                </code>
+              )
+            })}
+          </div>
+
+          {perm?.writePermissions?.length > 0 && (
+            <div className="flex flex-wrap justify-center gap-2 items-center">
+              <span className="text-xs text-gray-400 mr-2">ReadWrite:</span>
+              {(perm?.writePermissions || []).map(p => {
+                const missingW = (perm?.missingWrite || []).includes(p)
+                return (
+                  <code key={p} className={`text-sm bg-yellow-950/10 border border-yellow-900/40 px-3 py-1.5 rounded font-mono ${missingW ? 'text-yellow-300' : 'text-green-300'}`}>
+                    {p}
+                  </code>
+                )
+              })}
+            </div>
+          )}
+          {(!perm?.writePermissions || perm.writePermissions.length === 0) && (
+            <div className="flex flex-wrap justify-center gap-2 items-center">
+              <span className="text-xs text-gray-400 mr-2">ReadWrite:</span>
+              <span className="text-sm bg-gray-800 border border-gray-700 px-3 py-1.5 rounded text-gray-500">Not available for this collector</span>
+            </div>
+          )}
         </div>
         <button onClick={() => navigate('/')} className="btn-secondary mx-auto">← Back to Dashboard</button>
       </div>
@@ -450,7 +937,9 @@ export default function AreaView({ showToast, onSync }) {
   for (const item of (drift?.summary || [])) driftMap[item.resourceId] = item
 
   const hasBaseline  = !!baseline
-  const hasAnyData   = liveData || baseline
+  const liveHasResources = !!(liveData && Object.keys(liveData.resources || {}).length > 0)
+  const baselineHasResources = !!(baseline && Object.keys(baseline.resources || {}).length > 0)
+  const hasAnyData   = liveHasResources || baselineHasResources
 
   // When a baseline exists, the configuration tab shows ONLY baseline resources.
   // Resources not in baseline go in the collapsed "Not in Baseline" section.
@@ -558,19 +1047,19 @@ export default function AreaView({ showToast, onSync }) {
             <Clock size={10}/>
             {area.last_pulled_at
               ? (() => {
-                  const { timezone } = useBranding();
-                  const fmtTs = (iso, tz) => {
+                  const fmtTs = (iso) => {
                     if (!iso) return '—';
                     try {
-                      return new Intl.DateTimeFormat('en-AU', { dateStyle: 'medium', timeStyle: 'short', timeZone: tz }).format(new Date(iso));
+                      return new Intl.DateTimeFormat('en-AU', { dateStyle: 'medium', timeStyle: 'short', timeZone: timezone }).format(new Date(iso));
                     } catch {
                       return iso;
                     }
                   };
-                  return <>Last synced: <span className="text-gray-500">{fmtTs(area.last_pulled_at, timezone)}</span></>;
+                  return <>Last synced: <span className="text-gray-500">{fmtTs(area.last_pulled_at)}</span></>;
                 })()
               : <span className="text-gray-700">Never synced — pull live data to start</span>}
           </p>
+          {/* Fields captured UI removed (frontend-only) */}
         </div>
         <div className="flex items-center gap-2">
           {/* Bulk restore — only when there are drifted items and write access */}
@@ -597,10 +1086,26 @@ export default function AreaView({ showToast, onSync }) {
         <div className="flex items-center gap-2 bg-yellow-950/20 border border-yellow-900/40 rounded-lg px-4 py-2.5 text-xs text-yellow-300">
           <Eye size={13} className="shrink-0"/>
           <span>
-            Read-only — drift detection active, restore disabled. Add{' '}
-            {(perm.missingWrite || []).map((p, i, arr) => (
-              <span key={p}><code className="font-mono bg-yellow-950/40 px-1 rounded">{p}</code>{i < arr.length-1 ? ', ' : ''}</span>
-            ))}{' '}to your App Registration and re-pull to enable restore.
+            Read-only — drift detection active, restore disabled.{' '}
+            {(perm?.writePermissions || []).length === 0 && (
+              <>
+                This collector is read-only and does not expose a ReadWrite Graph capability.
+              </>
+            )}
+            {(perm?.writePermissions || []).length > 0 && (
+              <>
+            {restoreBlockedByCapability
+              ? (perm.restoreReason || 'Restore is not currently supported for this collector.')
+              : (
+                <>
+                  Add{' '}
+                  {(perm.missingWrite || []).map((p, i, arr) => (
+                    <span key={p}><code className="font-mono bg-yellow-950/40 px-1 rounded">{p}</code>{i < arr.length-1 ? ', ' : ''}</span>
+                  ))}{' '}to your App Registration and re-pull to enable restore.
+                </>
+              )}
+              </>
+            )}
           </span>
         </div>
       )}
@@ -797,7 +1302,9 @@ export default function AreaView({ showToast, onSync }) {
                     onRestore={canRestore ? restore : null}
                     restoring={restoring}
                     hasBaseline={hasBaseline}
-                    monitorOnlyKeys={monitorOnlyKeys}/>
+                    monitorOnlyKeys={monitorOnlyKeys}
+                    areaKey={areaKey}
+                    resourceDetails={resourceDetails} />
                 )
               })}
 
@@ -822,6 +1329,8 @@ export default function AreaView({ showToast, onSync }) {
                       restoring={restoring}
                       hasBaseline={hasBaseline}
                       monitorOnlyKeys={monitorOnlyKeys}
+                      resourceDetails={resourceDetails}
+                      areaKey={areaKey}
                       defaultOpen={['drifted','missing'].includes(driftMap[id]?.status || (liveResources[id]?'':'missing'))}/>
                   ))}
                 </div>

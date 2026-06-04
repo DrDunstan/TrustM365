@@ -1,10 +1,12 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { useLocation } from 'react-router-dom'
 import {
   AlertTriangle, CheckCircle, Circle, RefreshCw, ChevronRight,
   Lock, Eye, ChevronDown, Settings, ToggleLeft, ToggleRight,
   GripVertical, Clock, Shield, ShieldAlert, X, RotateCw, ArrowLeft, FileText, KeyRound, Layers
 } from 'lucide-react'
-import { areaApi, tenantApi } from '../api/client.js'
+import { appRegistrationApi, areaApi, tenantApi } from '../api/client.js'
+import { applyImpliedRead } from '../utils/permissions.js'
 import { usePollJob } from '../hooks/usePollJob.js'
 import TenantInsights from '../components/TenantInsights.jsx'
 import GenerateReportModal from '../components/GenerateReportModal.jsx'
@@ -43,6 +45,21 @@ const AREA_GROUPS = [
       'intune_ep_asr',
     ],
   },
+  {
+    key: 'sharepoint',
+    label: 'SharePoint',
+    areaKeys: ['sharepoint_sites', 'sharepoint_tenant_settings'],
+  },
+  {
+    key: 'teams',
+    label: 'Microsoft Teams',
+    areaKeys: ['teams_policies_messaging', 'teams_policies_meetings', 'teams_membership', 'teams_app_permission_policies', 'teams_channels_policies', 'teams_org_app_settings'],
+  },
+  {
+    key: 'exchange',
+    label: 'Exchange Online',
+    areaKeys: ['exchange_mailboxes','exchange_mailbox_security','exchange_connectors','exchange_transport_rules'],
+  },
 ]
 
 const STATUS_CONFIG = {
@@ -55,8 +72,9 @@ const STATUS_CONFIG = {
 // ── Single area row ───────────────────────────────────────────────────────────
 function AreaCard({ area, perm, syncing, onSync, onManage }) {
   const drift      = area.latestDrift
-  const isLocked   = perm ? !perm.canRead  : false
-  const isReadOnly = perm ?  perm.canRead && !perm.canWrite : false
+  const isLocked   = !(perm && perm.canRead)
+  const canRestore = (perm && (perm.canRestore ?? perm.canWrite)) || false
+  const isReadOnly = (perm && perm.canRead && !canRestore) || false
   const isUnavail  = drift?.status === 'unavailable'
   const isSyncing  = syncing
   const hasBaseline = area.has_baseline
@@ -84,6 +102,29 @@ function AreaCard({ area, perm, syncing, onSync, onManage }) {
                 : effectiveStatus === 'clean'       ? 'text-green-400 border-green-900/60 bg-green-950/20'
                 : 'text-gray-600 border-gray-800 bg-gray-900'
 
+  const accessLabel = isUnavail
+    ? 'Licence Required'
+    : isLocked
+    ? 'Locked'
+    : isReadOnly
+    ? 'Read Only'
+    : 'Full Access'
+
+  const baselineLabel = hasBaseline ? 'Baseline Set' : 'No Baseline Set'
+
+  const accessBadgeCls = isUnavail
+    ? 'text-gray-400 border-gray-700 bg-gray-900'
+    : isLocked
+    ? 'text-gray-500 border-gray-700 bg-gray-900'
+    : isReadOnly
+    ? 'text-yellow-400 border-yellow-900 bg-yellow-950/30'
+    : 'text-green-400 border-green-900 bg-green-950/30'
+
+  const baselineBadgeCls = hasBaseline
+    ? 'text-green-400 border-green-900 bg-green-950/20'
+    : 'text-yellow-400 border-yellow-900/60 bg-yellow-950/20'
+
+
   return (
     <div className={`card border transition-opacity ${borderCls}`}>
       <div className="flex items-center gap-4">
@@ -92,52 +133,38 @@ function AreaCard({ area, perm, syncing, onSync, onManage }) {
         </div>
 
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 flex-wrap">
             <span className={`font-semibold text-sm ${isLocked || isUnavail ? 'text-gray-500' : 'text-white'}`}>
               {area.display_name}
             </span>
-
-            {/* Status badges */}
-            {isLocked && (
-              <span className="text-xs bg-gray-900 text-gray-600 border border-gray-700 px-1.5 py-0.5 rounded">
-                Locked
-              </span>
-            )}
-            {isReadOnly && !isLocked && (
-              <span className="text-xs bg-yellow-950/30 text-yellow-600 border border-yellow-900/50 px-1.5 py-0.5 rounded flex items-center gap-1">
-                <Eye size={10}/> Read only
-              </span>
-            )}
-            {isUnavail && !isLocked && (
-              <span className="text-xs bg-gray-800 text-gray-500 border border-gray-700 px-1.5 py-0.5 rounded">
-                Licence required
-              </span>
-            )}
-            {!hasBaseline && !isUnavail && !isLocked && (
-              <span className="text-xs bg-yellow-900/20 text-yellow-500 border border-yellow-800/60 px-1.5 py-0.5 rounded">
-                No baseline
-              </span>
-            )}
-            {/* Drift count pill — only shown when genuinely drifted with count > 0 */}
-            {effectiveStatus === 'drifted' && (drift?.driftCount ?? 0) > 0 && (
-              <span className="text-xs bg-red-900/40 text-red-400 border border-red-900 px-1.5 py-0.5 rounded font-semibold">
-                {drift.driftCount} drift{drift.driftCount !== 1 ? 's' : ''}
-              </span>
-            )}
+            <span className={`text-[11px] px-1.5 py-0.5 rounded border ${accessBadgeCls}`}>
+              {accessLabel}
+            </span>
+            <span className={`text-[11px] px-1.5 py-0.5 rounded border ${baselineBadgeCls}`}>
+              {baselineLabel}
+            </span>
           </div>
+
+          {((isLocked && (perm?.missingRead || []).length > 0) || (!isLocked && !canRestore && (((perm?.writePermissions || []).length === 0) || (perm?.missingWrite || []).length > 0))) && (
+            <div className={`text-xs mt-0.5 ${isLocked ? 'text-red-300' : 'text-yellow-300'} flex flex-wrap items-center gap-1.5`}>
+              <span>{isLocked ? 'Read Permissions Required:' : 'Restore Permissions Required:'}</span>
+              {isLocked && (perm?.missingRead || []).length > 0 && (perm.missingRead || []).map(p => (
+                <code key={`mr-${p}`} className="font-mono text-xs bg-gray-800 border border-gray-700 px-1 py-0.5 rounded text-red-300">{p}</code>
+              ))}
+              {!isLocked && (perm?.writePermissions || []).length === 0 && (
+                <span className="text-xs bg-gray-900 border border-gray-700 px-1 py-0.5 rounded text-gray-500">Not available for this collector</span>
+              )}
+              {!isLocked && (perm?.missingWrite || []).length > 0 && (perm.missingWrite || []).map(p => (
+                <code key={`mw-${p}`} className="font-mono text-xs bg-yellow-950/30 border border-yellow-900/50 px-1 py-0.5 rounded text-yellow-300">{p}</code>
+              ))}
+            </div>
+          )}
 
           <p className={`text-xs mt-0.5 truncate ${isLocked || isUnavail ? 'text-gray-700' : 'text-gray-500'}`}>
             {area.description}
           </p>
 
-          {/* Missing read permissions */}
-          {isLocked && perm?.missingRead?.length > 0 && (
-            <div className="mt-1 flex flex-wrap gap-1">
-              {perm.missingRead.map(p => (
-                <code key={p} className="text-xs bg-gray-800 border border-gray-700 text-gray-500 px-1.5 py-0.5 rounded font-mono">{p}</code>
-              ))}
-            </div>
-          )}
+          {/* Permission lists removed from tenant dashboard to reduce clutter */}
 
           {drift && !isUnavail && !isLocked && (
             <p className="text-xs text-gray-700 mt-0.5">
@@ -228,6 +255,7 @@ function AreaGroup({ group, areas, permMap, syncing, onSync, onManage, navigate,
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 export default function Dashboard({ selectedTenant, navigate, showToast }) {
+  const location = useLocation()
   const [areas,        setAreas]        = useState([])
   const [syncing,      setSyncing]      = useState({})
   const [permMap,      setPermMap]      = useState({})
@@ -246,6 +274,11 @@ export default function Dashboard({ selectedTenant, navigate, showToast }) {
   const [showRotateForm, setShowRotateForm] = useState(false)
   const [newSecret,      setNewSecret]      = useState('')
   const [rotatingCreds,  setRotatingCreds]  = useState(false)
+  const [appRegistrations, setAppRegistrations] = useState([])
+  const [bindAppId, setBindAppId] = useState('')
+  const [bindAuthorityTenantId, setBindAuthorityTenantId] = useState('')
+  const [bindingApp, setBindingApp] = useState(false)
+  const appRegistrationSectionRef = useRef(null)
 
   // Permission re-check
   const [recheckingPerms, setRecheckingPerms] = useState(false)
@@ -296,23 +329,7 @@ export default function Dashboard({ selectedTenant, navigate, showToast }) {
     areaApi.list(selectedTenant.id).then(setAreas).catch(() => {})
   }
 
-  // Apply the ReadWrite→Read implication to a permission map entry.
-  // If the stored permissions_json predates this logic, correct it here.
-  const applyImpliedRead = (areas, granted) => {
-    if (!granted?.length) return areas
-    const grantedSet = new Set(granted)
-    for (const p of Array.from(grantedSet)) {
-      if (p.includes('.ReadWrite.')) grantedSet.add(p.replace('.ReadWrite.', '.Read.'))
-      if (p.includes('ReadWrite'))   grantedSet.add(p.replace('ReadWrite', 'Read'))
-    }
-    return areas.map(a => ({
-      ...a,
-      canRead:      (a.readPermissions  || []).every(p => grantedSet.has(p)),
-      canWrite:     (a.writePermissions || []).every(p => grantedSet.has(p)),
-      missingRead:  (a.readPermissions  || []).filter(p => !grantedSet.has(p)),
-      missingWrite: (a.writePermissions || []).filter(p => !grantedSet.has(p)),
-    }))
-  }
+  // Permission implication handled by shared util
 
   const loadPermissions = (permJson) => {
     const json = permJson || selectedTenant?.permissions_json
@@ -323,6 +340,20 @@ export default function Dashboard({ selectedTenant, navigate, showToast }) {
         const map = {}
         for (const a of corrected) map[a.areaKey] = a
         setPermMap(map)
+        // If the cached map predates newly added collectors, fetch fresh live permissions.
+        areaApi.list(selectedTenant.id)
+          .then(areaRows => {
+            const missingCollectorPerms = (areaRows || []).some(r => !map[r.area_key])
+            if (!missingCollectorPerms) return
+            return tenantApi.getPermissions(selectedTenant.id)
+              .then(data => {
+                const refreshed = {}
+                for (const a of (data.areas || [])) refreshed[a.areaKey] = a
+                setPermMap(refreshed)
+              })
+              .catch(() => {})
+          })
+          .catch(() => {})
         return
       } catch {}
     }
@@ -345,6 +376,37 @@ export default function Dashboard({ selectedTenant, navigate, showToast }) {
       driftIntervalMinutes: selectedTenant.drift_interval_minutes || 60,
     })
   }, [selectedTenant])
+
+  useEffect(() => {
+    if (!showSettings) return
+    appRegistrationApi.list()
+      .then(data => {
+        setAppRegistrations(data)
+        if (!bindAppId) {
+          const current = data.find(a => a.id === selectedTenant?.app_registration_id)
+          if (current) setBindAppId(current.id)
+        }
+      })
+      .catch(() => {})
+  }, [showSettings, selectedTenant?.id])
+
+  useEffect(() => {
+    const focusTarget = location?.state?.focus
+    const targetTenantId = location?.state?.tenantId
+    if (focusTarget !== 'app-registration') return
+    if (!selectedTenant?.id) return
+    if (targetTenantId && targetTenantId !== selectedTenant.id) return
+
+    setShowSettings(true)
+    setTimeout(() => {
+      appRegistrationSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 50)
+
+    // Clear one-shot navigation state.
+    navigate('/', { replace: true })
+  }, [location?.state, selectedTenant?.id])
+
+  const currentAppRegistration = appRegistrations.find(a => a.id === selectedTenant?.app_registration_id)
 
   const saveTenantSettings = async () => {
     setSavingSettings(true)
@@ -502,8 +564,9 @@ export default function Dashboard({ selectedTenant, navigate, showToast }) {
     a.latestDrift?.status === 'clean' ||
     (a.latestDrift?.status === 'drifted' && (a.latestDrift?.driftCount || 0) === 0)
   )
-  const noBaseline = areas.filter(a => !a.has_baseline && a.latestDrift?.status !== 'unavailable')
-  const noCheck    = areas.filter(a => a.has_baseline && !a.latestDrift)
+  const noBaseline = areas.filter(a =>
+    (a.latestDrift?.status !== 'unavailable') && (!a.has_baseline || !a.latestDrift)
+  )
 
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-6">
@@ -614,6 +677,24 @@ export default function Dashboard({ selectedTenant, navigate, showToast }) {
         <div>
           <h1 className="text-xl font-bold text-white">{selectedTenant.display_name}</h1>
           <p className="text-gray-500 text-xs mt-0.5">{selectedTenant.tenant_id}</p>
+          <div className="mt-1.5">
+            {currentAppRegistration ? (
+              <span className="inline-flex items-center gap-1.5 text-[11px] px-2 py-0.5 rounded border border-gray-700 bg-gray-900/60 text-gray-300">
+                <KeyRound size={10} className="text-brand-400"/>
+                App: {currentAppRegistration.display_name}
+              </span>
+            ) : selectedTenant?.app_registration_id ? (
+              <span className="inline-flex items-center gap-1.5 text-[11px] px-2 py-0.5 rounded border border-yellow-900/60 bg-yellow-950/20 text-yellow-300">
+                <KeyRound size={10}/>
+                App link present (not in registry list)
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 text-[11px] px-2 py-0.5 rounded border border-gray-800 bg-gray-900/40 text-gray-600">
+                <KeyRound size={10}/>
+                No linked app registration
+              </span>
+            )}
+          </div>
         </div>
         <div className="flex items-center gap-2">
           {/* Item 2 — auto-restore toggle */}
@@ -706,13 +787,28 @@ export default function Dashboard({ selectedTenant, navigate, showToast }) {
           </div>
 
           {/* ── Section: App Registration ───────────────────────────────── */}
-          <div className="space-y-4 pt-5">
+          <div ref={appRegistrationSectionRef} className="space-y-4 pt-5">
             <div className="flex items-center gap-2">
               <ShieldAlert size={13} className="text-brand-400 shrink-0"/>
               <h3 className="text-xs font-semibold text-brand-300 uppercase tracking-wider">App Registration</h3>
             </div>
 
             {/* Client Secret rotation */}
+            <div className="rounded-lg border border-gray-800 bg-gray-900/40 px-3 py-2.5 text-xs">
+              <div className="text-gray-500">Current linked app registration</div>
+              {currentAppRegistration ? (
+                <div className="mt-1 space-y-0.5">
+                  <div className="text-white font-medium">{currentAppRegistration.display_name}</div>
+                  <div className="text-gray-600 font-mono">{currentAppRegistration.client_id}</div>
+                </div>
+              ) : (
+                <div className="mt-1 space-y-0.5">
+                  <div className="text-yellow-300">Linked app not found in registry list</div>
+                  <div className="text-gray-600 font-mono break-all">{selectedTenant?.app_registration_id || 'No app registration linked'}</div>
+                </div>
+              )}
+            </div>
+
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <div>
@@ -783,6 +879,61 @@ export default function Dashboard({ selectedTenant, navigate, showToast }) {
                 <RefreshCw size={11} className={recheckingPerms ? 'animate-spin' : ''}/>
                 {recheckingPerms ? 'Syncing…' : 'Sync Permissions'}
               </button>
+            </div>
+
+            {/* Switch linked app registration */}
+            <div className="pt-2 border-t border-gray-800 space-y-2">
+              <div>
+                <div className="text-sm text-white font-medium">Linked App Registration</div>
+                <div className="text-xs text-gray-500 mt-0.5">Bind this tenant to another shared app registration and make it primary.</div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                <select
+                  className="input text-sm"
+                  value={bindAppId}
+                  onChange={e => setBindAppId(e.target.value)}>
+                  <option value="">Select app registration…</option>
+                  {appRegistrations.map(app => (
+                    <option key={app.id} value={app.id}>{app.display_name} ({app.client_id})</option>
+                  ))}
+                </select>
+
+                <input
+                  className="input text-sm font-mono"
+                  placeholder="Authority tenant ID (optional)"
+                  value={bindAuthorityTenantId}
+                  onChange={e => setBindAuthorityTenantId(e.target.value)}
+                />
+              </div>
+
+              <div className="flex justify-end">
+                <button
+                  onClick={async () => {
+                    if (!bindAppId) return showToast('Select an app registration first', 'error')
+                    setBindingApp(true)
+                    try {
+                      await appRegistrationApi.bind(bindAppId, {
+                        tenantId: selectedTenant.id,
+                        authorityTenantId: bindAuthorityTenantId || undefined,
+                        isPrimary: true,
+                        refreshPermissions: true,
+                      })
+                      setShowSettings(false)
+                      window.dispatchEvent(new CustomEvent('trustm365:tenants-changed'))
+                      await recheckPermissions()
+                      showToast('Tenant app registration updated', 'success')
+                    } catch (err) {
+                      showToast(err.response?.data?.error || err.response?.data?.message || 'Failed to bind app registration', 'error')
+                    } finally {
+                      setBindingApp(false)
+                    }
+                  }}
+                  disabled={!bindAppId || bindingApp}
+                  className="btn-secondary text-xs shrink-0">
+                  {bindingApp ? 'Linking…' : 'Link App Registration'}
+                </button>
+              </div>
             </div>
           </div>
 
@@ -934,12 +1085,11 @@ export default function Dashboard({ selectedTenant, navigate, showToast }) {
       {/* Summary strip */}
       <div>
         <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Baseline Status</h2>
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-3 gap-3">
           {[
             { label: 'Drifted',     value: drifted.length,    color: drifted.length > 0 ? 'text-red-400' : 'text-gray-400',  border: drifted.length > 0 ? 'border-red-900/60 bg-red-950/10' : '' },
             { label: 'Clean',       value: clean.length,      color: 'text-green-400',  border: '' },
-            { label: 'No Baseline', value: noBaseline.length, color: 'text-yellow-400', border: '' },
-            { label: 'Unchecked',   value: noCheck.length,    color: 'text-gray-400',   border: '' },
+            { label: 'No Baseline Set', value: noBaseline.length, color: 'text-yellow-400', border: '' },
           ].map(({ label, value, color, border }) => (
             <div key={label} className={`card-sm text-center border ${border || 'border-gray-800'}`}>
               <div className={`text-2xl font-bold ${color}`}>{value}</div>

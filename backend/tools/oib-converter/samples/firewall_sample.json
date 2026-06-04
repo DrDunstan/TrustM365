@@ -1,0 +1,14 @@
+{
+  "name": "Win - OIB - ES - Windows Firewall - D - Firewall Configuration - v3.1",
+  "description": "Windows Firewall configuration",
+  "profileType": "Settings catalog",
+  "category": "Firewall",
+  "policyType": "Windows Firewall",
+  "platformSupported": "Windows 10 and later",
+  "settings": [
+    { "name": "Enable Domain Network Firewall", "value": "True" },
+    { "name": "Default Inbound Action for Domain Profile", "value": "Block" },
+    { "name": "Default Inbound Action for Private Profile", "value": "Block" },
+    { "name": "Enable Private Network Firewall", "value": "True" }
+  ]
+}

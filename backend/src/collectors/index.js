@@ -1,5 +1,1241 @@
 const { graphGet, graphGetAll, graphPatch, graphPost } = require('../services/graph');
 
+// Inlined SharePoint Sites collector
+const sharepointSites = {
+  areaKey: 'sharepoint_sites',
+  displayName: 'SharePoint Sites',
+  description: 'SharePoint site collections and basic sharing settings',
+  licenceRequired: null,
+  readPermissions: ['Sites.Read.All'],
+  writePermissions: ['Sites.Manage.All'],
+  graphBasePath: '/sites',
+
+  async pull(token) {
+    let sites;
+    try {
+      sites = await graphGetAll(token, '/sites?search=*');
+    } catch (err) {
+      const single = await graphGet(token, '/sites/root').catch(() => null);
+      sites = single ? [single] : [];
+    }
+    const resources = {};
+    for (const s of sites) {
+      const id = s.id || s.siteCollection?.hostname || s.webUrl || Math.random().toString(36).slice(2,10)
+      const base = {
+        id,
+        displayName: s.displayName || s.name || s.webUrl || id,
+        webUrl: s.webUrl || null,
+        siteCollection: s.siteCollection || null,
+        createdDateTime: s.createdDateTime || null,
+      };
+
+      try {
+        const drive = await graphGet(token, `/sites/${id}/drive`).catch(() => null);
+        if (drive) base.driveId = drive.id;
+      } catch {}
+
+      try {
+        const perms = await graphGetAll(token, `/sites/${id}/permissions`).catch(() => []);
+        if (Array.isArray(perms)) {
+          base.permissionCount = perms.length;
+          base.permissions = perms.slice(0, 500).map(p => {
+            const entry = { id: p.id, roles: p.roles || [] };
+            if (p.grantedTo) {
+              const g = p.grantedTo.user || p.grantedTo;
+              entry.grantedTo = g ? { id: g.id || null, displayName: g.displayName || null, email: g.email || g.userPrincipalName || null } : null;
+            }
+            if (p.grantedToIdentities) {
+              entry.grantedToIdentities = p.grantedToIdentities.map(i => ({
+                id: i?.user?.id || i?.application?.id || i?.device?.id || null,
+                displayName: i?.user?.displayName || i?.application?.displayName || i?.displayName || null,
+              }));
+            }
+            if (p.link) {
+              entry.link = { scope: p.link.scope || null, webUrl: p.link.webUrl || null, type: p.link.type || null };
+            }
+            return entry;
+          });
+        }
+      } catch {}
+
+      try {
+        if (base.driveId) {
+          const drivePerms = await graphGetAll(token, `/drives/${base.driveId}/permissions`).catch(() => []);
+          if (Array.isArray(drivePerms)) {
+            base.drivePermissions = drivePerms.slice(0, 500).map(p => ({ id: p.id, roles: p.roles || [], grantedTo: p.grantedTo || null }));
+          }
+        } else {
+          const drivePerms = await graphGetAll(token, `/sites/${id}/drive/permissions`).catch(() => []);
+          if (Array.isArray(drivePerms) && drivePerms.length) {
+            base.drivePermissions = drivePerms.slice(0, 500).map(p => ({ id: p.id, roles: p.roles || [], grantedTo: p.grantedTo || null }));
+          }
+        }
+      } catch {}
+
+      try {
+        const settings = await graphGet(token, `/sites/${id}?$select=webUrl,displayName,createdDateTime` ).catch(() => null);
+        if (settings) {
+          base.displayName = base.displayName || settings.displayName;
+          base.webUrl = base.webUrl || settings.webUrl;
+        }
+      } catch {}
+
+      try {
+        const anonSamples = [];
+        const externalSamples = [];
+        const tenantGuess = base.siteCollection && base.siteCollection.hostname
+          ? String(base.siteCollection.hostname).split('.')[0]
+          : null;
+
+        const processPerm = (p) => {
+          if (!p) return;
+          if (p.link && p.link.scope && String(p.link.scope).toLowerCase().includes('anon')) {
+            anonSamples.push({ id: p.id || null, webUrl: p.link.webUrl || p.webUrl || null, roles: p.roles || [], grantedTo: p.grantedTo || null });
+          }
+
+          const email = p.grantedTo && (p.grantedTo.email || p.grantedTo.userPrincipalName || p.grantedTo.user?.userPrincipalName);
+          if (email) {
+            const isExternal = tenantGuess ? !String(email).toLowerCase().includes(String(tenantGuess).toLowerCase()) : true;
+            if (isExternal) externalSamples.push({ id: p.id || null, webUrl: p.link?.webUrl || p.webUrl || null, roles: p.roles || [], grantedToEmail: email });
+          }
+
+          if (Array.isArray(p.grantedToIdentities)) {
+            for (const i of p.grantedToIdentities) {
+              const disp = i?.user?.displayName || i?.application?.displayName || i?.displayName || '';
+              if (String(disp).toLowerCase().includes('guest')) {
+                externalSamples.push({ id: p.id || null, displayName: disp, roles: p.roles || [] });
+              }
+            }
+          }
+        };
+
+        if (Array.isArray(base.permissions)) base.permissions.forEach(processPerm);
+        if (Array.isArray(base.drivePermissions)) base.drivePermissions.forEach(processPerm);
+
+        base.anonymousLinkCount = anonSamples.length;
+        base.anonymousLinks = anonSamples.slice(0, 5);
+        base.externalShareCount = externalSamples.length;
+        base.externalShareSamples = externalSamples.slice(0, 5);
+
+        const combined = [...anonSamples, ...externalSamples];
+        const seen = new Set();
+        base.topExternallyShared = combined.filter(s => {
+          const key = s.webUrl || s.id || JSON.stringify(s);
+          if (!key) return false;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        }).slice(0, 5);
+      } catch (err) { }
+
+      resources[base.id] = base;
+    }
+    return resources;
+  },
+
+  monitorOnlyKeys: ['permissionCount', 'permissions', 'drivePermissions'],
+
+  watchableKeys: [
+    { path: 'displayName', label: 'Site Title', type: 'string' },
+    { path: 'webUrl', label: 'Site URL', type: 'string' },
+    { path: 'siteCollection', label: 'Site Collection', type: 'json' },
+    { path: 'driveId', label: 'Default Document Library', type: 'string' },
+    { path: 'permissionCount', label: 'Permission Entries Count (monitor only)', type: 'number' },
+    { path: 'permissions', label: 'Permission Entries (monitor only, summarized)', type: 'json' },
+    { path: 'drivePermissions', label: 'Drive Permission Entries (monitor only, summarized)', type: 'json' },
+    { path: 'anonymousLinkCount', label: 'Anonymous Link Count (monitor only)', type: 'number' },
+    { path: 'externalShareCount', label: 'External Share Count (monitor only)', type: 'number' },
+    { path: 'externalShareSamples', label: 'External Share Samples (monitor only)', type: 'json' },
+    { path: 'topExternallyShared', label: 'Top Externally Shared Items (monitor only)', type: 'json' },
+  ],
+
+  async restore(token, resourceId, baselineResource) {
+    const patch = {};
+    if (baselineResource.displayName) patch.displayName = baselineResource.displayName;
+    if (Object.keys(patch).length === 0) return;
+    await graphPatch(token, `/sites/${resourceId}`, patch);
+  },
+
+  async repairPlan(token, resourceId, baselineResource = {}, liveResource = {}) {
+    const plan = [];
+    const baselinePerms = Array.isArray(baselineResource.permissions) ? baselineResource.permissions : [];
+    const livePerms = Array.isArray(liveResource?.permissions) ? liveResource.permissions : [];
+
+    const extractIds = (p) => {
+      const ids = [];
+      if (!p) return ids;
+      const grant = p.grantedTo || p.grantedTo?.user || null;
+      if (grant) {
+        if (grant.id) ids.push(grant.id);
+        if (grant.userPrincipalName) ids.push(grant.userPrincipalName);
+        if (grant.email) ids.push(grant.email);
+      }
+      if (Array.isArray(p.grantedToIdentities)) {
+        for (const i of p.grantedToIdentities) {
+          if (i?.user?.id) ids.push(i.user.id);
+          if (i?.application?.id) ids.push(i.application.id);
+        }
+      }
+      return ids;
+    };
+
+    const missing = [];
+    for (const bp of baselinePerms) {
+      const match = livePerms.find(lp => {
+        const a = extractIds(bp);
+        const b = extractIds(lp);
+        if (a.some(id => b.includes(id))) return true;
+        if (bp.link?.webUrl && lp.link?.webUrl && bp.link.webUrl === lp.link.webUrl) return true;
+        if (JSON.stringify(bp.roles || []) === JSON.stringify(lp.roles || []) && bp.grantedTo?.displayName && lp.grantedTo?.displayName && bp.grantedTo.displayName === lp.grantedTo.displayName) return true;
+        return false;
+      });
+      if (!match) missing.push(bp);
+    }
+
+    if (missing.length) {
+      plan.push({ type: 'info', message: `Found ${missing.length} permission entries present in baseline but missing in live snapshot` });
+      for (const m of missing) {
+        if (m.grantedTo) {
+          const principal = m.grantedTo.user || m.grantedTo;
+          const title = principal?.displayName || principal?.email || principal?.id || 'Principal';
+          plan.push({
+            type: 'suggestion',
+            title: `Add permission for ${title}`,
+            description: `Restore permission roles ${ (m.roles || []).join(', ') } for ${title}. This will re-grant access present in the baseline.`,
+            api: {
+              method: 'POST',
+              path: `/sites/${resourceId}/permissions`,
+              body: {
+                grantee: principal?.user ? { user: { id: principal.user.id } } : { user: { id: principal.id } },
+                roles: m.roles || []
+              }
+            }
+          });
+        } else if (m.link) {
+          plan.push({
+            type: 'manual',
+            title: 'Recreate sharing link',
+            description: 'Baseline contained a sharing link; recreate via the SharePoint UI or use the Graph invite APIs for the specific drive item.'
+          });
+        } else {
+          plan.push({ type: 'manual', title: 'Review permission entry', description: 'Baseline includes a permission entry that could not be auto-suggested — review manually.' });
+        }
+      }
+    } else {
+      plan.push({ type: 'info', message: 'No missing permission entries detected in baseline vs live snapshot' });
+    }
+
+    const baselineDrivePerms = Array.isArray(baselineResource.drivePermissions) ? baselineResource.drivePermissions : [];
+    const liveDrivePerms = Array.isArray(liveResource?.drivePermissions) ? liveResource.drivePermissions : [];
+    const missingDrive = baselineDrivePerms.filter(bp => !liveDrivePerms.some(lp => JSON.stringify(lp.roles || []) === JSON.stringify(bp.roles || []) && ((lp.grantedTo?.user?.id && lp.grantedTo.user.id === bp.grantedTo?.user?.id) || (lp.grantedTo?.id && lp.grantedTo.id === bp.grantedTo?.id))));
+    if (missingDrive.length) {
+      plan.push({ type: 'info', message: `Found ${missingDrive.length} drive-level permission entries missing from live snapshot` });
+      for (const m of missingDrive) {
+        const grantee = m.grantedTo && (m.grantedTo.user || m.grantedTo);
+        if (grantee?.id) {
+          plan.push({
+            type: 'suggestion',
+            title: `Add drive permission for ${grantee.displayName || grantee.id}`,
+            description: `Add missing drive permission with roles ${(m.roles || []).join(', ')}.`,
+            api: {
+              method: 'POST',
+              path: m.driveId ? `/drives/${m.driveId}/permissions` : `/sites/${resourceId}/drive/permissions`,
+              body: {
+                grantee: grantee.user ? { user: { id: grantee.user.id } } : { user: { id: grantee.id } },
+                roles: m.roles || []
+              }
+            }
+          });
+        } else {
+          plan.push({ type: 'manual', title: 'Review drive permission', description: 'Cannot auto-suggest drive permission for this entry; review manually in the SharePoint or OneDrive admin UI.' });
+        }
+      }
+    }
+
+    return plan;
+  },
+};
+
+const sharepointTenantSettings = {
+  areaKey: 'sharepoint_tenant_settings',
+  displayName: 'Tenant Security Settings',
+  description: 'SharePoint tenant-level security and sharing posture settings.',
+  licenceRequired: null,
+  readPermissions: ['SharePointTenantSettings.Read.All'],
+  writePermissions: ['SharePointTenantSettings.ReadWrite.All'],
+  restoreSupported: true,
+  graphBasePath: '/admin/sharepoint/settings',
+
+  async pull(token) {
+    const settings = await graphGet(token, '/admin/sharepoint/settings').catch(() => null);
+    if (!settings) return {};
+    return {
+      tenant: {
+        id: 'tenant',
+        displayName: 'Tenant SharePoint Settings',
+        sharingCapability: settings.sharingCapability ?? null,
+        sharingDomainRestrictionMode: settings.sharingDomainRestrictionMode ?? null,
+        sharingAllowedDomainList: settings.sharingAllowedDomainList ?? [],
+        sharingBlockedDomainList: settings.sharingBlockedDomainList ?? [],
+        isRequireAcceptingUserToMatchInvitedUserEnabled: settings.isRequireAcceptingUserToMatchInvitedUserEnabled ?? null,
+        isResharingByExternalUsersEnabled: settings.isResharingByExternalUsersEnabled ?? null,
+        idleSessionSignOut: settings.idleSessionSignOut ?? null,
+        isLegacyAuthProtocolsEnabled: settings.isLegacyAuthProtocolsEnabled ?? null,
+        isUnmanagedSyncAppForTenantRestricted: settings.isUnmanagedSyncAppForTenantRestricted ?? null,
+        allowedDomainGuidsForSyncApp: settings.allowedDomainGuidsForSyncApp ?? [],
+        excludedFileExtensionsForSyncApp: settings.excludedFileExtensionsForSyncApp ?? [],
+        isSiteCreationEnabled: settings.isSiteCreationEnabled ?? null,
+        isSiteCreationUIEnabled: settings.isSiteCreationUIEnabled ?? null,
+        siteCreationDefaultManagedPath: settings.siteCreationDefaultManagedPath ?? null,
+        raw: settings,
+      }
+    };
+  },
+
+  async get(token) {
+    const resources = await this.pull(token);
+    return resources.tenant || null;
+  },
+
+  monitorOnlyKeys: ['raw'],
+  watchableKeys: [
+    { path: 'sharingCapability', label: 'Sharing Capability', type: 'string' },
+    { path: 'sharingDomainRestrictionMode', label: 'Sharing Domain Restriction Mode', type: 'string' },
+    { path: 'sharingAllowedDomainList', label: 'Sharing Allowed Domain List', type: 'array' },
+    { path: 'sharingBlockedDomainList', label: 'Sharing Blocked Domain List', type: 'array' },
+    { path: 'isRequireAcceptingUserToMatchInvitedUserEnabled', label: 'Require Invitee Match', type: 'boolean' },
+    { path: 'isResharingByExternalUsersEnabled', label: 'Allow External Resharing', type: 'boolean' },
+    { path: 'idleSessionSignOut', label: 'Idle Session Sign-out', type: 'json' },
+    { path: 'isLegacyAuthProtocolsEnabled', label: 'Legacy Auth Protocols Enabled', type: 'boolean' },
+    { path: 'isUnmanagedSyncAppForTenantRestricted', label: 'Restrict Unmanaged Sync App', type: 'boolean' },
+    { path: 'allowedDomainGuidsForSyncApp', label: 'Allowed Domain GUIDs For Sync App', type: 'array' },
+    { path: 'excludedFileExtensionsForSyncApp', label: 'Excluded File Extensions For Sync App', type: 'array' },
+    { path: 'isSiteCreationEnabled', label: 'Site Creation Enabled', type: 'boolean' },
+    { path: 'isSiteCreationUIEnabled', label: 'Site Creation UI Enabled', type: 'boolean' },
+    { path: 'siteCreationDefaultManagedPath', label: 'Site Creation Default Managed Path', type: 'string' },
+  ],
+
+  async restore(token, _resourceId, baselineResource = {}) {
+    const patch = {};
+    const fields = [
+      'sharingCapability',
+      'sharingDomainRestrictionMode',
+      'sharingAllowedDomainList',
+      'sharingBlockedDomainList',
+      'isRequireAcceptingUserToMatchInvitedUserEnabled',
+      'isResharingByExternalUsersEnabled',
+      'idleSessionSignOut',
+      'isLegacyAuthProtocolsEnabled',
+      'isUnmanagedSyncAppForTenantRestricted',
+      'allowedDomainGuidsForSyncApp',
+      'excludedFileExtensionsForSyncApp',
+      'isSiteCreationEnabled',
+      'isSiteCreationUIEnabled',
+      'siteCreationDefaultManagedPath',
+    ];
+    for (const f of fields) {
+      if (baselineResource[f] !== undefined && baselineResource[f] !== null) patch[f] = baselineResource[f];
+    }
+    if (Object.keys(patch).length === 0) return;
+    await graphPatch(token, '/admin/sharepoint/settings', patch);
+  },
+};
+
+// Inlined grouped collectors for Exchange and Teams (moved into index.js)
+// Reuse service methods already required above: graphGet, graphGetAll, graphPatch, graphPost
+const BETA_URL = 'https://graph.microsoft.com/beta';
+
+// --- Exchange collectors (inlined) ---
+const exchangeMailboxes = {
+  areaKey: 'exchange_mailboxes',
+  displayName: 'Mailboxes',
+  description: 'Mailbox-level settings and forwarding indicators for monitoring posture.',
+  licenceRequired: null,
+  readPermissions:  ['MailboxSettings.Read'],
+  writePermissions: ['MailboxSettings.ReadWrite'],
+  restoreSupported: false,
+  monitorOnlyKeys: [],
+  watchableKeys: [
+    { path: 'displayName', label: 'Display Name', type: 'string' },
+    { path: 'mail', label: 'Primary SMTP address', type: 'string' },
+    { path: 'raw.userPrincipalName', label: 'User Principal Name', type: 'string' },
+    { path: 'mailboxSettings.timeZone', label: 'Mailbox Time Zone', type: 'string' },
+    { path: 'mailboxSettings.delegateMeetingMessageDeliveryOptions', label: 'Delegate Meeting Delivery', type: 'string' },
+    { path: 'mailboxSettings.automaticRepliesSetting.status', label: 'Automatic Replies Status', type: 'string' },
+    { path: 'mailboxSettings.automaticRepliesSetting.externalAudience', label: 'Automatic Replies External Audience', type: 'string' },
+    { path: 'mailboxSettings.workingHours', label: 'Working Hours', type: 'json' },
+    { path: 'forwardingRules', label: 'Forwarding Rules (summary)', type: 'array' },
+    { path: 'messageRules', label: 'Inbox Message Rules (full)', type: 'json' },
+    { path: 'inferenceClassification', label: 'Inference Classification', type: 'json' },
+  ],
+
+  async pull(token) {
+    const resources = {};
+    let users = [];
+    try {
+      users = await graphGetAll(token, '/users?$select=id,displayName,mail,userPrincipalName');
+    } catch (err) {
+      throw err;
+    }
+
+    const concurrency = 8;
+    for (let i = 0; i < users.length; i += concurrency) {
+      const batch = users.slice(i, i + concurrency);
+      await Promise.all(batch.map(async (u) => {
+        const id = u.id || u.userPrincipalName || (u.mail || '').toLowerCase() || (`user_${Math.random().toString(36).slice(2,9)}`);
+        const displayName = u.displayName || u.mail || u.userPrincipalName || id;
+        const res = { id, displayName, mail: u.mail || null, raw: u };
+
+        try {
+          const mb = await graphGet(token, `/users/${encodeURIComponent(u.id)}/mailboxSettings`).catch(() => null);
+          if (mb) res.mailboxSettings = mb;
+        } catch (e) { }
+
+        try {
+          const rules = await graphGetAll(token, `/users/${encodeURIComponent(u.id)}/mailFolders/inbox/messageRules`).catch(() => []);
+          if (Array.isArray(rules) && rules.length > 0) {
+            res.messageRules = rules;
+            const forwarding = rules.filter(r => {
+              const a = r?.actions || {};
+              return (!!a.forwardTo || !!a.forwardAsAttachmentTo || !!a.redirectTo);
+            }).map(r => ({ id: r.id, displayName: r.displayName || '', actions: r.actions || {}, conditions: r.conditions || {} }));
+            if (forwarding.length > 0) res.forwardingRules = forwarding;
+          }
+        } catch (e) { }
+
+        try {
+          const inf = await graphGet(token, `/users/${encodeURIComponent(u.id)}/inferenceClassification`).catch(() => null);
+          if (inf) res.inferenceClassification = inf;
+        } catch (e) { }
+
+        resources[id] = res;
+      }));
+    }
+
+    return resources;
+  },
+
+  async get(token, resourceId) {
+    try {
+      const user = await graphGet(token, `/users/${encodeURIComponent(resourceId)}?$select=id,displayName,mail,userPrincipalName`).catch(() => null);
+      if (user) {
+        let mailboxSettings = null;
+        try { mailboxSettings = await graphGet(token, `/users/${encodeURIComponent(resourceId)}/mailboxSettings`).catch(() => null); } catch (_) { mailboxSettings = null; }
+
+        let messageRules = null;
+        try {
+          const rules = await graphGetAll(token, `/users/${encodeURIComponent(resourceId)}/mailFolders/inbox/messageRules`).catch(() => []);
+          if (Array.isArray(rules) && rules.length > 0) messageRules = rules;
+        } catch (e) { }
+
+        let forwardingRules = null;
+        if (Array.isArray(messageRules) && messageRules.length > 0) {
+          const forwarding = messageRules.filter(r => {
+            const a = r?.actions || {};
+            return (!!a.forwardTo || !!a.forwardAsAttachmentTo || !!a.redirectTo);
+          }).map(r => ({ id: r.id, displayName: r.displayName || '', actions: r.actions || {}, conditions: r.conditions || {} }));
+          if (forwarding.length > 0) forwardingRules = forwarding;
+        }
+
+        let inferenceClassification = null;
+        try {
+          const inf = await graphGet(token, `/users/${encodeURIComponent(resourceId)}/inferenceClassification`).catch(() => null);
+          if (inf) inferenceClassification = inf;
+        } catch (e) { }
+
+        return {
+          id: user.id || resourceId,
+          displayName: user.displayName || user.mail || user.userPrincipalName || resourceId,
+          mail: user.mail || null,
+          mailboxSettings,
+          messageRules,
+          forwardingRules,
+          inferenceClassification,
+          raw: { user, mailboxSettings, messageRules, inferenceClassification }
+        };
+      }
+    } catch (err) { }
+    return null;
+  },
+
+  async restore() { throw new Error('Restore not supported for mailboxes in this collector.'); },
+};
+
+const exchangeMailboxSecurity = {
+  areaKey: 'exchange_mailbox_security',
+  displayName: 'Mailbox Security Settings',
+  description: 'Mailbox security-relevant settings and forwarding indicators.',
+  licenceRequired: null,
+  readPermissions: ['MailboxSettings.Read'],
+  writePermissions: ['MailboxSettings.ReadWrite'],
+  restoreSupported: true,
+  graphBasePath: '/users',
+
+  async pull(token) {
+    const resources = {};
+    let users = [];
+    try {
+      users = await graphGetAll(token, '/users?$select=id,displayName,mail,userPrincipalName');
+    } catch (err) {
+      throw err;
+    }
+
+    const concurrency = 8;
+    for (let i = 0; i < users.length; i += concurrency) {
+      const batch = users.slice(i, i + concurrency);
+      await Promise.all(batch.map(async (u) => {
+        const id = u.id || u.userPrincipalName || (u.mail || '').toLowerCase() || (`user_${Math.random().toString(36).slice(2,9)}`);
+        const entry = {
+          id,
+          displayName: u.displayName || u.mail || u.userPrincipalName || id,
+          mail: u.mail || null,
+          userPrincipalName: u.userPrincipalName || null,
+        };
+
+        try {
+          const mailboxSettings = await graphGet(token, `/users/${encodeURIComponent(u.id)}/mailboxSettings`).catch(() => null);
+          if (mailboxSettings) entry.mailboxSettings = mailboxSettings;
+        } catch {}
+
+        try {
+          const rules = await graphGetAll(token, `/users/${encodeURIComponent(u.id)}/mailFolders/inbox/messageRules`).catch(() => []);
+          if (Array.isArray(rules) && rules.length > 0) {
+            entry.messageRules = rules.slice(0, 200);
+            entry.forwardingRules = rules
+              .filter(r => {
+                const a = r?.actions || {};
+                return !!a.forwardTo || !!a.forwardAsAttachmentTo || !!a.redirectTo;
+              })
+              .map(r => ({
+                id: r.id,
+                displayName: r.displayName || null,
+                isEnabled: r.isEnabled ?? null,
+                actions: r.actions || {},
+              }));
+            entry.riskyForwardingRuleCount = entry.forwardingRules.length;
+          } else {
+            entry.riskyForwardingRuleCount = 0;
+          }
+        } catch {
+          entry.riskyForwardingRuleCount = 0;
+        }
+
+        resources[id] = entry;
+      }));
+    }
+
+    return resources;
+  },
+
+  async get(token, resourceId) {
+    const user = await graphGet(token, `/users/${encodeURIComponent(resourceId)}?$select=id,displayName,mail,userPrincipalName`).catch(() => null);
+    if (!user) return null;
+    const resources = await this.pull(token);
+    return resources[user.id] || null;
+  },
+
+  monitorOnlyKeys: ['messageRules', 'forwardingRules', 'riskyForwardingRuleCount'],
+  watchableKeys: [
+    { path: 'mail', label: 'Primary SMTP Address', type: 'string' },
+    { path: 'mailboxSettings.timeZone', label: 'Mailbox Time Zone', type: 'string' },
+    { path: 'mailboxSettings.language', label: 'Mailbox Language', type: 'json' },
+    { path: 'mailboxSettings.workingHours', label: 'Working Hours', type: 'json' },
+    { path: 'mailboxSettings.delegateMeetingMessageDeliveryOptions', label: 'Delegate Meeting Message Delivery', type: 'string' },
+    { path: 'mailboxSettings.automaticRepliesSetting', label: 'Automatic Replies Setting', type: 'json' },
+    { path: 'riskyForwardingRuleCount', label: 'Risky Forwarding Rules Count (monitor only)', type: 'number' },
+    { path: 'forwardingRules', label: 'Forwarding Rules (monitor only)', type: 'json' },
+  ],
+
+  async restore(token, resourceId, baselineResource = {}) {
+    const baseline = baselineResource.mailboxSettings || {};
+    const patch = {};
+    const fields = [
+      'timeZone',
+      'language',
+      'workingHours',
+      'delegateMeetingMessageDeliveryOptions',
+      'automaticRepliesSetting',
+    ];
+    for (const f of fields) {
+      if (baseline[f] !== undefined && baseline[f] !== null) patch[f] = baseline[f];
+    }
+    if (Object.keys(patch).length === 0) return;
+    await graphPatch(token, `/users/${encodeURIComponent(resourceId)}/mailboxSettings`, patch);
+  },
+};
+
+const DEFAULT_ENV = 'EXCHANGE_CONNECTORS_ENDPOINTS';
+const exchangeConnectors = {
+  areaKey: 'exchange_connectors',
+  displayName: 'Mail Flow Connectors',
+  description: 'Mail flow connectors (mail routing) — best-effort via Microsoft Graph endpoints when configured.',
+  licenceRequired: null,
+  readPermissions:  ['Policy.Read.All'],
+  writePermissions: [],
+  restoreSupported: false,
+  graphBasePath: null,
+
+  async pull(token) {
+    const raw = process.env[DEFAULT_ENV] || '';
+    const endpoints = [`${BETA_URL}/connectors`].concat(raw.split(',').map(s => s.trim()).filter(Boolean));
+    const resources = {};
+
+    for (const ep of endpoints) {
+      let path = ep;
+      if (!path.startsWith('http')) {
+        if (path.startsWith('beta:')) path = `${BETA_URL}${path.slice(5)}`;
+        else if (path.startsWith('/beta')) path = `${BETA_URL}${path.slice(5)}`;
+        else if (!path.startsWith('/')) path = `/${path}`;
+      }
+
+      let items;
+      try { items = await graphGetAll(token, path); } catch (err) { continue; }
+      if (!Array.isArray(items) || items.length === 0) continue;
+      for (const it of items) {
+        const id = it.id || it.name || it.connectorId || (`connector_${Math.random().toString(36).slice(2,9)}`);
+        if (resources[id]) continue;
+        const displayName = it.displayName || it.name || `Connector ${id}`;
+        resources[id] = { id, displayName, type: it.connectorType || it.type || null, raw: it };
+      }
+    }
+
+    return resources;
+  },
+
+  async get(token, resourceId) {
+    const tryPaths = [ `${BETA_URL}/connectors/${resourceId}`, `/beta/connectors/${resourceId}`, `/connectors/${resourceId}` ];
+    for (const p of tryPaths) {
+      try {
+        const it = await graphGet(token, p).catch(() => null);
+        if (!it) continue;
+        const id = it.id || resourceId;
+        const displayName = it.displayName || it.name || `Connector ${id}`;
+        return { id, displayName, type: it.connectorType || it.type || null, raw: it };
+      } catch (err) { continue; }
+    }
+    return null;
+  },
+
+  monitorOnlyKeys: ['raw'],
+  watchableKeys: [
+    { path: 'displayName', label: 'Connector Name', type: 'string' },
+    { path: 'type', label: 'Connector Type', type: 'string' },
+    { path: 'raw', label: 'Connector Payload (monitor only)', type: 'json' },
+  ],
+  async restore() { throw new Error('Restore not supported for mail flow connectors via Graph'); },
+};
+
+const DEFAULT_ENV_TR = 'EXCHANGE_TRANSPORT_RULES_ENDPOINTS';
+const exchangeTransportRules = {
+  areaKey: 'exchange_transport_rules',
+  displayName: 'Transport Rules',
+  description: 'Exchange transport rules / mail flow rules — best-effort via Microsoft Graph endpoints when configured.',
+  licenceRequired: null,
+  readPermissions:  ['Policy.Read.All'],
+  writePermissions: [],
+  restoreSupported: false,
+  graphBasePath: null,
+
+  async pull(token) {
+    const raw = process.env[DEFAULT_ENV_TR] || '';
+    const endpoints = [`${BETA_URL}/transportRules`].concat(raw.split(',').map(s => s.trim()).filter(Boolean));
+    const resources = {};
+    for (const ep of endpoints) {
+      let path = ep;
+      if (!path.startsWith('http')) {
+        if (path.startsWith('beta:')) path = `${BETA_URL}${path.slice(5)}`;
+        else if (path.startsWith('/beta')) path = `${BETA_URL}${path.slice(5)}`;
+        else if (!path.startsWith('/')) path = `/${path}`;
+      }
+
+      let items;
+      try { items = await graphGetAll(token, path); } catch (err) { continue; }
+      if (!Array.isArray(items) || items.length === 0) continue;
+      for (const it of items) {
+        const id = it.id || it.ruleId || it.name || (`rule_${Math.random().toString(36).slice(2,9)}`);
+        if (resources[id]) continue;
+        const displayName = it.displayName || it.name || `Transport Rule ${id}`;
+        resources[id] = {
+          id,
+          displayName,
+          isEnabled: (it.state !== undefined) ? (String(it.state).toLowerCase() === 'enabled') : (it.isEnabled !== undefined ? !!it.isEnabled : null),
+          priority: it.priority ?? it.order ?? null,
+          conditions: it.conditions || it.predicates || null,
+          actions: it.actions || it.applyActions || null,
+          raw: it,
+        };
+      }
+    }
+    return resources;
+  },
+
+  async get(token, resourceId) {
+    const tryPaths = [ `${BETA_URL}/transportRules/${resourceId}`, `/beta/transportRules/${resourceId}`, `/transportRules/${resourceId}` ];
+    for (const p of tryPaths) {
+      try {
+        const it = await graphGet(token, p).catch(() => null);
+        if (!it) continue;
+        const id = it.id || it.ruleId || resourceId;
+        const displayName = it.displayName || it.name || `Transport Rule ${id}`;
+        return {
+          id,
+          displayName,
+          isEnabled: (it.state !== undefined) ? (String(it.state).toLowerCase() === 'enabled') : (it.isEnabled !== undefined ? !!it.isEnabled : null),
+          priority: it.priority ?? it.order ?? null,
+          conditions: it.conditions || it.predicates || null,
+          actions: it.actions || it.applyActions || null,
+          raw: it,
+        };
+      } catch (err) { continue; }
+    }
+    return null;
+  },
+
+  monitorOnlyKeys: ['conditions', 'actions', 'raw'],
+  watchableKeys: [
+    { path: 'displayName', label: 'Rule Name', type: 'string' },
+    { path: 'isEnabled', label: 'Enabled', type: 'boolean' },
+    { path: 'priority', label: 'Priority', type: 'number' },
+    { path: 'conditions', label: 'Rule Conditions (monitor only)', type: 'json' },
+    { path: 'actions', label: 'Rule Actions (monitor only)', type: 'json' },
+    { path: 'raw', label: 'Rule Payload (monitor only)', type: 'json' },
+  ],
+  async restore() { throw new Error('Restore not supported for transport rules via Graph'); },
+};
+
+const exchangeGroup = {
+  exchange_mailboxes: exchangeMailboxes,
+  exchange_mailbox_security: exchangeMailboxSecurity,
+  exchange_connectors: exchangeConnectors,
+  exchange_transport_rules: exchangeTransportRules,
+};
+
+// --- Teams collectors (inlined) ---
+const DEFAULT_ENV_MSG = 'TEAMS_MESSAGING_POLICIES_ENDPOINTS';
+const DEFAULT_ENV_MEET = 'TEAMS_MEETING_POLICIES_ENDPOINTS';
+const teamsMessagingPolicies = {
+  areaKey: 'teams_policies_messaging',
+  displayName: 'Messaging Policies',
+  description: 'Tenant-level Teams messaging policies (Giphy, memes, edit/delete, profanity).',
+  licenceRequired: null,
+  readPermissions:  ['Policy.Read.All'],
+  writePermissions: ['TeamSettings.ReadWrite.All'],
+  restoreSupported: true,
+  graphBasePath: '/policies/teamsMessagingPolicies',
+
+  async pull(token) {
+    const raw = process.env[DEFAULT_ENV_MSG] || '';
+    const endpoints = [`${BETA_URL}/policies/teamsMessagingPolicies`].concat(raw.split(',').map(s => s.trim()).filter(Boolean));
+    const resources = {};
+    for (const ep of endpoints) {
+      let path = ep;
+      if (!path.startsWith('http')) {
+        if (path.startsWith('beta:')) path = `${BETA_URL}${path.slice(5)}`;
+        else if (path.startsWith('/beta')) path = `${BETA_URL}${path.slice(5)}`;
+        else if (!path.startsWith('/')) path = `/${path}`;
+      }
+
+      let items;
+      try { items = await graphGetAll(token, path); } catch (err) { continue; }
+      if (!Array.isArray(items) || items.length === 0) continue;
+      for (const it of items) {
+        const id = it.id || it.displayName || (`teams_msg_policy_${Math.random().toString(36).slice(2,9)}`);
+        if (resources[id]) continue;
+        const displayName = it.displayName || `Messaging Policy ${id}`;
+        resources[id] = {
+          id,
+          displayName,
+          allowGiphy: it.allowGiphy ?? null,
+          giphyContentRating: it.giphyContentRating || null,
+          allowMemes: it.allowMemes ?? null,
+          allowStickersAndMemes: it.allowStickersAndMemes ?? null,
+          allowUserEditMessages: it.allowUserEditMessages ?? null,
+          allowUserDeleteMessages: it.allowUserDeleteMessages ?? null,
+          raw: it,
+        };
+      }
+    }
+    return resources;
+  },
+
+  async get(token, resourceId) {
+    const tryPaths = [ `${BETA_URL}/policies/teamsMessagingPolicies/${resourceId}`, `/policies/teamsMessagingPolicies/${resourceId}` ];
+    for (const p of tryPaths) {
+      try {
+        const it = await graphGet(token, p).catch(() => null);
+        if (!it) continue;
+        const id = it.id || resourceId;
+        return {
+          id,
+          displayName: it.displayName || `Messaging Policy ${id}`,
+          allowGiphy: it.allowGiphy ?? null,
+          giphyContentRating: it.giphyContentRating ?? null,
+          allowMemes: it.allowMemes ?? null,
+          allowStickersAndMemes: it.allowStickersAndMemes ?? null,
+          allowUserEditMessages: it.allowUserEditMessages ?? null,
+          allowUserDeleteMessages: it.allowUserDeleteMessages ?? null,
+          raw: it,
+        };
+      } catch (err) { continue; }
+    }
+    return null;
+  },
+
+  monitorOnlyKeys: ['raw'],
+
+  watchableKeys: [
+    { path: 'allowGiphy', label: 'Allow Giphy', type: 'boolean' },
+    { path: 'giphyContentRating', label: 'Giphy Content Rating', type: 'string' },
+    { path: 'allowMemes', label: 'Allow Memes', type: 'boolean' },
+    { path: 'allowStickersAndMemes', label: 'Allow Stickers & Memes', type: 'boolean' },
+    { path: 'allowUserEditMessages', label: 'Allow Edit Messages', type: 'boolean' },
+    { path: 'allowUserDeleteMessages', label: 'Allow Delete Messages', type: 'boolean' },
+  ],
+
+  async restore(token, resourceId, baselineResource) {
+    const patch = {};
+    const fields = ['allowGiphy', 'giphyContentRating', 'allowMemes', 'allowStickersAndMemes', 'allowUserEditMessages', 'allowUserDeleteMessages'];
+    for (const f of fields) {
+      if (baselineResource[f] !== undefined && baselineResource[f] !== null) patch[f] = baselineResource[f];
+    }
+    if (Object.keys(patch).length === 0) return;
+    await graphPatch(token, `/policies/teamsMessagingPolicies/${resourceId}`, patch);
+  },
+};
+
+const teamsMeetingPolicies = {
+  areaKey: 'teams_policies_meetings',
+  displayName: 'Meeting Policies',
+  description: 'Tenant-level Teams meeting policies (recording, transcription, lobby, anonymous join).',
+  licenceRequired: null,
+  readPermissions:  ['Policy.Read.All'],
+  writePermissions: ['TeamSettings.ReadWrite.All'],
+  restoreSupported: true,
+  graphBasePath: '/policies/onlineMeetingPolicies',
+
+  async pull(token) {
+    const raw = process.env[DEFAULT_ENV_MEET] || '';
+    const endpoints = [`${BETA_URL}/policies/onlineMeetingPolicies`].concat(raw.split(',').map(s => s.trim()).filter(Boolean));
+    const resources = {};
+    for (const ep of endpoints) {
+      let path = ep;
+      if (!path.startsWith('http')) {
+        if (path.startsWith('beta:')) path = `${BETA_URL}${path.slice(5)}`;
+        else if (path.startsWith('/beta')) path = `${BETA_URL}${path.slice(5)}`;
+        else if (!path.startsWith('/')) path = `/${path}`;
+      }
+
+      let items;
+      try { items = await graphGetAll(token, path); } catch (err) { continue; }
+      if (!Array.isArray(items) || items.length === 0) continue;
+      for (const it of items) {
+        const id = it.id || it.displayName || (`teams_meet_policy_${Math.random().toString(36).slice(2,9)}`);
+        if (resources[id]) continue;
+        resources[id] = {
+          id,
+          displayName: it.displayName || `Meeting Policy ${id}`,
+          allowTranscription: it.allowTranscription ?? null,
+          allowRecording: it.allowRecording ?? null,
+          recordingStorageExpirationDays: it.recordingStorageExpirationDays || null,
+          allowAnonymousJoin: it.allowAnonymousJoin ?? null,
+          lobbyBypass: it.lobbyBypass || null,
+          raw: it,
+        };
+      }
+    }
+    return resources;
+  },
+
+  async get(token, resourceId) {
+    const tryPaths = [ `${BETA_URL}/policies/onlineMeetingPolicies/${resourceId}`, `/policies/onlineMeetingPolicies/${resourceId}` ];
+    for (const p of tryPaths) {
+      try {
+        const it = await graphGet(token, p).catch(() => null);
+        if (!it) continue;
+        return {
+          id: it.id || resourceId,
+          displayName: it.displayName || `Meeting Policy ${resourceId}`,
+          allowTranscription: it.allowTranscription ?? null,
+          allowRecording: it.allowRecording ?? null,
+          recordingStorageExpirationDays: it.recordingStorageExpirationDays || null,
+          allowAnonymousJoin: it.allowAnonymousJoin ?? null,
+          lobbyBypass: it.lobbyBypass || null,
+          raw: it,
+        };
+      } catch (err) { continue; }
+    }
+    return null;
+  },
+
+  monitorOnlyKeys: ['raw'],
+
+  watchableKeys: [
+    { path: 'allowTranscription', label: 'Allow Transcription', type: 'boolean' },
+    { path: 'allowRecording', label: 'Allow Recording', type: 'boolean' },
+    { path: 'recordingStorageExpirationDays', label: 'Recording Expiry (days)', type: 'number' },
+    { path: 'allowAnonymousJoin', label: 'Allow Anonymous Join', type: 'boolean' },
+    { path: 'lobbyBypass', label: 'Lobby Bypass Settings', type: 'json' },
+  ],
+
+  async restore(token, resourceId, baselineResource) {
+    const patch = {};
+    const fields = ['allowTranscription', 'allowRecording', 'recordingStorageExpirationDays', 'allowAnonymousJoin'];
+    for (const f of fields) {
+      if (baselineResource[f] !== undefined && baselineResource[f] !== null) patch[f] = baselineResource[f];
+    }
+    if (baselineResource.lobbyBypass !== undefined && baselineResource.lobbyBypass !== null) patch.lobbyBypass = baselineResource.lobbyBypass;
+    if (Object.keys(patch).length === 0) return;
+    await graphPatch(token, `/policies/onlineMeetingPolicies/${resourceId}`, patch);
+  },
+};
+
+const teamsMembership = {
+  areaKey: 'teams_membership',
+  displayName: 'Team Membership',
+  description: 'Team membership and owners — monitor members, owners and guest counts.',
+  licenceRequired: null,
+  readPermissions:  ['Group.Read.All', 'Team.ReadBasic.All'],
+  writePermissions: ['GroupMember.ReadWrite.All'],
+  restoreSupported: true,
+  graphBasePath: '/groups',
+
+  async pull(token) {
+    let groups;
+    try {
+      groups = await graphGetAll(token, "/groups?$filter=resourceProvisioningOptions/Any(x:x eq 'Team')&$select=id,displayName");
+    } catch (err) { groups = []; }
+
+    const resources = {};
+    for (const g of groups) {
+      const id = g.id;
+      const base = { id, displayName: g.displayName || id };
+
+      try {
+        const members = await graphGetAll(token, `/groups/${id}/members`).catch(() => []);
+        if (Array.isArray(members)) {
+          base.memberCount = members.length;
+          base.members = members.slice(0, 500).map(m => ({ id: m.id || null, displayName: m.displayName || m.userPrincipalName || null, userPrincipalName: m.userPrincipalName || null }));
+        }
+      } catch (err) { }
+
+      try {
+        const owners = await graphGetAll(token, `/groups/${id}/owners`).catch(() => []);
+        if (Array.isArray(owners)) {
+          base.ownerCount = owners.length;
+          base.owners = owners.slice(0, 200).map(o => ({ id: o.id || null, displayName: o.displayName || o.userPrincipalName || null, userPrincipalName: o.userPrincipalName || null }));
+        }
+      } catch (err) { }
+
+      try {
+        const guestSamples = Array.isArray(base.members) ? base.members.filter(m => m.userPrincipalName && String(m.userPrincipalName).includes('#EXT#')) : [];
+        base.guestCount = guestSamples.length;
+        base.guestSamples = guestSamples.slice(0, 5);
+      } catch (err) { }
+
+      resources[id] = base;
+    }
+
+    return resources;
+  },
+
+  async get(token, resourceId) {
+    try {
+      const group = await graphGet(token, `/groups/${resourceId}?$select=id,displayName`).catch(() => null);
+      if (!group) return null;
+      const base = { id: group.id, displayName: group.displayName || group.id };
+      try { base.members = await graphGetAll(token, `/groups/${resourceId}/members`); } catch (e) { base.members = []; }
+      try { base.owners = await graphGetAll(token, `/groups/${resourceId}/owners`); } catch (e) { base.owners = []; }
+      base.memberCount = Array.isArray(base.members) ? base.members.length : 0;
+      base.ownerCount = Array.isArray(base.owners) ? base.owners.length : 0;
+      base.guestCount = Array.isArray(base.members) ? base.members.filter(m => m.userPrincipalName && String(m.userPrincipalName).includes('#EXT#')).length : 0;
+      return base;
+    } catch (err) { return null; }
+  },
+
+  monitorOnlyKeys: ['memberCount', 'ownerCount', 'guestCount'],
+
+  watchableKeys: [
+    { path: 'owners', label: 'Owners (list)', type: 'array' },
+    { path: 'members', label: 'Members (list)', type: 'array' },
+    { path: 'guestCount', label: 'Guest Members Count', type: 'number' },
+    { path: 'isMembershipLimitedToOwners', label: 'Membership limited to owners', type: 'boolean' },
+  ],
+
+  async restore(token, resourceId, baselineResource = {}) {
+    const baselineMembers = Array.isArray(baselineResource.members) ? baselineResource.members : [];
+    const baselineOwners = Array.isArray(baselineResource.owners) ? baselineResource.owners : [];
+
+    let liveMembers = [];
+    try { liveMembers = await graphGetAll(token, `/groups/${resourceId}/members`).catch(() => []); } catch (err) { liveMembers = []; }
+    let liveOwners = [];
+    try { liveOwners = await graphGetAll(token, `/groups/${resourceId}/owners`).catch(() => []); } catch (err) { liveOwners = []; }
+
+    const liveMemberIds = new Set(liveMembers.map(m => m.id));
+    const liveOwnerIds = new Set(liveOwners.map(o => o.id));
+
+    const resolvePrincipalId = async (item) => {
+      if (!item) return null;
+      if (item.id) return item.id;
+      if (item.userPrincipalName) {
+        try {
+          const u = await graphGet(token, `/users/${encodeURIComponent(item.userPrincipalName)}`).catch(() => null);
+          if (u && u.id) return u.id;
+        } catch (err) { }
+      }
+      return null;
+    };
+
+    for (const bm of baselineMembers) {
+      try {
+        const pid = await resolvePrincipalId(bm);
+        if (!pid || liveMemberIds.has(pid)) continue;
+        await graphPost(token, `/groups/${resourceId}/members/$ref`, { '@odata.id': `https://graph.microsoft.com/v1.0/directoryObjects/${pid}` });
+      } catch (err) { }
+    }
+
+    for (const bo of baselineOwners) {
+      try {
+        const pid = await resolvePrincipalId(bo);
+        if (!pid || liveOwnerIds.has(pid)) continue;
+        await graphPost(token, `/groups/${resourceId}/owners/$ref`, { '@odata.id': `https://graph.microsoft.com/v1.0/directoryObjects/${pid}` });
+      } catch (err) { }
+    }
+  },
+};
+
+const DEFAULT_ENV_APP_PERMISSION = 'TEAMS_APP_PERMISSION_POLICIES_ENDPOINTS';
+const DEFAULT_ENV_CHANNELS = 'TEAMS_CHANNELS_POLICIES_ENDPOINTS';
+const ENABLE_TEAMS_POLICY_RESTORE = String(process.env.TEAMS_POLICY_RESTORE_ENABLE || '').toLowerCase() === 'true';
+const APP_PERMISSION_POLICY_ALLOWLIST = ['displayName', 'description', 'defaultCatalogAppsType', 'globalCatalogAppsType', 'privateCatalogAppsType'];
+const CHANNELS_POLICY_ALLOWLIST = ['displayName', 'description', 'allowPrivateChannelCreation', 'allowSharedChannelCreation'];
+
+const teamsAppPermissionPolicies = {
+  areaKey: 'teams_app_permission_policies',
+  displayName: 'App Permission Policies',
+  description: 'Teams app permission policies — controls org app access posture.',
+  licenceRequired: null,
+  readPermissions: ['Policy.Read.All'],
+  writePermissions: ['TeamSettings.ReadWrite.All'],
+  restoreSupported: ENABLE_TEAMS_POLICY_RESTORE,
+  restoreReason: ENABLE_TEAMS_POLICY_RESTORE ? null : 'Restore is disabled by default. Set TEAMS_POLICY_RESTORE_ENABLE=true after validating policy write behavior in your tenant.',
+  graphBasePath: '/policies/teamsAppPermissionPolicies',
+
+  async pull(token) {
+    const raw = process.env[DEFAULT_ENV_APP_PERMISSION] || '';
+    const endpoints = [`${BETA_URL}/policies/teamsAppPermissionPolicies`].concat(raw.split(',').map(s => s.trim()).filter(Boolean));
+    const resources = {};
+    for (const ep of endpoints) {
+      let path = ep;
+      if (!path.startsWith('http')) {
+        if (path.startsWith('beta:')) path = `${BETA_URL}${path.slice(5)}`;
+        else if (path.startsWith('/beta')) path = `${BETA_URL}${path.slice(5)}`;
+        else if (!path.startsWith('/')) path = `/${path}`;
+      }
+
+      let items;
+      try { items = await graphGetAll(token, path); } catch { continue; }
+      if (!Array.isArray(items) || items.length === 0) continue;
+      for (const it of items) {
+        const id = it.id || it.displayName || (`teams_app_perm_${Math.random().toString(36).slice(2,9)}`);
+        if (resources[id]) continue;
+        resources[id] = {
+          id,
+          displayName: it.displayName || `App Permission Policy ${id}`,
+          description: it.description || null,
+          defaultCatalogAppsType: it.defaultCatalogAppsType ?? null,
+          globalCatalogAppsType: it.globalCatalogAppsType ?? null,
+          privateCatalogAppsType: it.privateCatalogAppsType ?? null,
+          raw: it,
+        };
+      }
+    }
+    return resources;
+  },
+
+  async get(token, resourceId) {
+    const tryPaths = [ `${BETA_URL}/policies/teamsAppPermissionPolicies/${resourceId}`, `/policies/teamsAppPermissionPolicies/${resourceId}` ];
+    for (const p of tryPaths) {
+      try {
+        const it = await graphGet(token, p).catch(() => null);
+        if (!it) continue;
+        return {
+          id: it.id || resourceId,
+          displayName: it.displayName || `App Permission Policy ${resourceId}`,
+          description: it.description || null,
+          defaultCatalogAppsType: it.defaultCatalogAppsType ?? null,
+          globalCatalogAppsType: it.globalCatalogAppsType ?? null,
+          privateCatalogAppsType: it.privateCatalogAppsType ?? null,
+          raw: it,
+        };
+      } catch { continue; }
+    }
+    return null;
+  },
+
+  monitorOnlyKeys: ['raw'],
+  watchableKeys: [
+    { path: 'displayName', label: 'Policy Name', type: 'string' },
+    { path: 'description', label: 'Description', type: 'string' },
+    { path: 'defaultCatalogAppsType', label: 'Default Catalog Apps Type', type: 'string' },
+    { path: 'globalCatalogAppsType', label: 'Global Catalog Apps Type', type: 'string' },
+    { path: 'privateCatalogAppsType', label: 'Private Catalog Apps Type', type: 'string' },
+    { path: 'raw', label: 'Policy Payload (monitor only)', type: 'json' },
+  ],
+
+  async restore(token, resourceId, baselineResource = {}) {
+    if (!ENABLE_TEAMS_POLICY_RESTORE) {
+      throw new Error('Teams policy restore is disabled. Set TEAMS_POLICY_RESTORE_ENABLE=true to enable after tenant validation.');
+    }
+    const patch = {};
+    for (const f of APP_PERMISSION_POLICY_ALLOWLIST) {
+      if (baselineResource[f] !== undefined && baselineResource[f] !== null) patch[f] = baselineResource[f];
+    }
+    if (Object.keys(patch).length === 0) return;
+    await graphPatch(token, `/policies/teamsAppPermissionPolicies/${resourceId}`, patch);
+  },
+};
+
+const teamsChannelsPolicies = {
+  areaKey: 'teams_channels_policies',
+  displayName: 'Channels Policies',
+  description: 'Teams channels policies — private/shared channel governance posture.',
+  licenceRequired: null,
+  readPermissions: ['Policy.Read.All'],
+  writePermissions: ['TeamSettings.ReadWrite.All'],
+  restoreSupported: ENABLE_TEAMS_POLICY_RESTORE,
+  restoreReason: ENABLE_TEAMS_POLICY_RESTORE ? null : 'Restore is disabled by default. Set TEAMS_POLICY_RESTORE_ENABLE=true after validating policy write behavior in your tenant.',
+  graphBasePath: '/policies/teamsChannelsPolicies',
+
+  async pull(token) {
+    const raw = process.env[DEFAULT_ENV_CHANNELS] || '';
+    const endpoints = [`${BETA_URL}/policies/teamsChannelsPolicies`].concat(raw.split(',').map(s => s.trim()).filter(Boolean));
+    const resources = {};
+    for (const ep of endpoints) {
+      let path = ep;
+      if (!path.startsWith('http')) {
+        if (path.startsWith('beta:')) path = `${BETA_URL}${path.slice(5)}`;
+        else if (path.startsWith('/beta')) path = `${BETA_URL}${path.slice(5)}`;
+        else if (!path.startsWith('/')) path = `/${path}`;
+      }
+
+      let items;
+      try { items = await graphGetAll(token, path); } catch { continue; }
+      if (!Array.isArray(items) || items.length === 0) continue;
+      for (const it of items) {
+        const id = it.id || it.displayName || (`teams_channels_policy_${Math.random().toString(36).slice(2,9)}`);
+        if (resources[id]) continue;
+        resources[id] = {
+          id,
+          displayName: it.displayName || `Channels Policy ${id}`,
+          description: it.description || null,
+          allowPrivateChannelCreation: it.allowPrivateChannelCreation ?? null,
+          allowSharedChannelCreation: it.allowSharedChannelCreation ?? null,
+          raw: it,
+        };
+      }
+    }
+    return resources;
+  },
+
+  async get(token, resourceId) {
+    const tryPaths = [ `${BETA_URL}/policies/teamsChannelsPolicies/${resourceId}`, `/policies/teamsChannelsPolicies/${resourceId}` ];
+    for (const p of tryPaths) {
+      try {
+        const it = await graphGet(token, p).catch(() => null);
+        if (!it) continue;
+        return {
+          id: it.id || resourceId,
+          displayName: it.displayName || `Channels Policy ${resourceId}`,
+          description: it.description || null,
+          allowPrivateChannelCreation: it.allowPrivateChannelCreation ?? null,
+          allowSharedChannelCreation: it.allowSharedChannelCreation ?? null,
+          raw: it,
+        };
+      } catch { continue; }
+    }
+    return null;
+  },
+
+  monitorOnlyKeys: ['raw'],
+  watchableKeys: [
+    { path: 'displayName', label: 'Policy Name', type: 'string' },
+    { path: 'description', label: 'Description', type: 'string' },
+    { path: 'allowPrivateChannelCreation', label: 'Allow Private Channel Creation', type: 'boolean' },
+    { path: 'allowSharedChannelCreation', label: 'Allow Shared Channel Creation', type: 'boolean' },
+    { path: 'raw', label: 'Policy Payload (monitor only)', type: 'json' },
+  ],
+
+  async restore(token, resourceId, baselineResource = {}) {
+    if (!ENABLE_TEAMS_POLICY_RESTORE) {
+      throw new Error('Teams policy restore is disabled. Set TEAMS_POLICY_RESTORE_ENABLE=true to enable after tenant validation.');
+    }
+    const patch = {};
+    for (const f of CHANNELS_POLICY_ALLOWLIST) {
+      if (baselineResource[f] !== undefined && baselineResource[f] !== null) patch[f] = baselineResource[f];
+    }
+    if (Object.keys(patch).length === 0) return;
+    await graphPatch(token, `/policies/teamsChannelsPolicies/${resourceId}`, patch);
+  },
+};
+
+const teamsOrgAppSettings = {
+  areaKey: 'teams_org_app_settings',
+  displayName: 'Org App Settings',
+  description: 'Teams organization app settings — sideloading and app request posture.',
+  licenceRequired: null,
+  readPermissions: ['TeamworkAppSettings.Read.All'],
+  writePermissions: ['TeamworkAppSettings.ReadWrite.All'],
+  restoreSupported: true,
+  graphBasePath: '/teamwork/teamsAppSettings',
+
+  async pull(token) {
+    const settings = await graphGet(token, '/teamwork/teamsAppSettings').catch(() => null);
+    if (!settings) return {};
+    return {
+      tenant: {
+        id: 'tenant',
+        displayName: 'Teams Org App Settings',
+        isSideloadingEnabled: settings.isSideloadingEnabled ?? null,
+        isUserRequestsForAppAccessEnabled: settings.isUserRequestsForAppAccessEnabled ?? null,
+        raw: settings,
+      }
+    };
+  },
+
+  async get(token) {
+    const resources = await this.pull(token);
+    return resources.tenant || null;
+  },
+
+  monitorOnlyKeys: ['raw'],
+  watchableKeys: [
+    { path: 'isSideloadingEnabled', label: 'Sideloading Enabled', type: 'boolean' },
+    { path: 'isUserRequestsForAppAccessEnabled', label: 'User Requests For App Access Enabled', type: 'boolean' },
+    { path: 'raw', label: 'Teams App Settings Payload (monitor only)', type: 'json' },
+  ],
+
+  async restore(token, _resourceId, baselineResource = {}) {
+    const patch = {};
+    for (const f of ['isSideloadingEnabled', 'isUserRequestsForAppAccessEnabled']) {
+      if (baselineResource[f] !== undefined && baselineResource[f] !== null) patch[f] = baselineResource[f];
+    }
+    if (Object.keys(patch).length === 0) return;
+    await graphPatch(token, '/teamwork/teamsAppSettings', patch);
+  },
+};
+
+const teamsGroup = {
+  teams_policies_messaging: teamsMessagingPolicies,
+  teams_policies_meetings: teamsMeetingPolicies,
+  teams_membership: teamsMembership,
+  teams_app_permission_policies: teamsAppPermissionPolicies,
+  teams_channels_policies: teamsChannelsPolicies,
+  teams_org_app_settings: teamsOrgAppSettings,
+};
+
+// grouped collectors are defined above as `exchangeMailboxes`, `exchangeConnectors`,
+// `exchangeTransportRules`, `teamsMessagingPolicies`, `teamsMeetingPolicies`, `teamsMembership`.
+
 // ─── LICENCE-AWARE ERROR CLASSIFICATION ──────────────────────────────────────
 const LICENCE_ERROR_PATTERNS = [
   'request not applicable to target tenant',
@@ -433,7 +1669,18 @@ const entraAuthPolicies = {
 
     // Security Defaults — one of the most critical tenant-level security controls
     try {
-      const secDefaults = await graphGet(token, '/policies/identitySecurityDefaultsEnforcementPolicy');
+      let secDefaults = null;
+      try {
+        secDefaults = await graphGet(token, '/policies/identitySecurityDefaultsEnforcementPolicy');
+      } catch (err) {
+        // Some tenants only expose this under the Graph beta API and v1.0 returns 400.
+        if (err && err.statusCode === 400) {
+          try {
+            secDefaults = await graphGet(token, `${BETA}/policies/identitySecurityDefaultsEnforcementPolicy`);
+          } catch (err2) { if (!isLicenceError(err2)) throw err2; }
+        } else if (!isLicenceError(err)) throw err;
+      }
+
       if (secDefaults) {
         resources['security_defaults'] = {
           id: 'security_defaults',
@@ -445,7 +1692,17 @@ const entraAuthPolicies = {
 
     // Authorization policy — guest invites, SSPR, default user permissions
     try {
-      const authz = await graphGet(token, '/policies/authorizationPolicy');
+      let authz = null;
+      try {
+        authz = await graphGet(token, '/policies/authorizationPolicy');
+      } catch (err) {
+        // Some tenants expose this under Graph beta when v1.0 returns 400
+        if (err && err.statusCode === 400) {
+          try {
+            authz = await graphGet(token, `${BETA}/policies/authorizationPolicy`);
+          } catch (err2) { if (!isLicenceError(err2)) throw err2; }
+        } else if (!isLicenceError(err)) throw err;
+      }
       if (authz) {
         resources['authorization_policy'] = {
           id: 'authorization_policy',
@@ -463,7 +1720,17 @@ const entraAuthPolicies = {
 
     // Authentication methods policy — per-method enable/disable
     try {
-      const authMethods = await graphGet(token, '/policies/authenticationMethodsPolicy');
+      let authMethods = null;
+      try {
+        authMethods = await graphGet(token, '/policies/authenticationMethodsPolicy');
+      } catch (err) {
+        // Some tenants expose this under Graph beta when v1.0 returns 400
+        if (err && err.statusCode === 400) {
+          try {
+            authMethods = await graphGet(token, `${BETA}/policies/authenticationMethodsPolicy`);
+          } catch (err2) { if (!isLicenceError(err2)) throw err2; }
+        } else if (!isLicenceError(err)) throw err;
+      }
       if (authMethods) {
         resources['auth_methods_policy'] = {
           id: 'auth_methods_policy',
@@ -515,9 +1782,18 @@ const entraAuthPolicies = {
   async restore(token, resourceId, baselineResource) {
     // Security Defaults
     if (resourceId === 'security_defaults') {
-      await graphPatch(token, '/policies/identitySecurityDefaultsEnforcementPolicy',
-        { isEnabled: baselineResource.isEnabled }
-      );
+      try {
+        await graphPatch(token, '/policies/identitySecurityDefaultsEnforcementPolicy',
+          { isEnabled: baselineResource.isEnabled }
+        );
+      } catch (err) {
+        // If v1.0 rejects this tenant, try the beta endpoint as a fallback
+        if (err && err.statusCode === 400) {
+          await graphPatch(token, `${BETA}/policies/identitySecurityDefaultsEnforcementPolicy`,
+            { isEnabled: baselineResource.isEnabled }
+          );
+        } else if (!isLicenceError(err)) throw err;
+      }
     }
 
     // Authorization policy
@@ -568,9 +1844,24 @@ const entraCA = {
   async pull(token) {
     let policies;
     try {
-      policies = await graphGetAll(token, '/identity/conditionalAccess/policies');
+      try {
+        policies = await graphGetAll(token, '/identity/conditionalAccess/policies');
+      } catch (err) {
+        // Some tenants return 400 on v1.0 for CA endpoints — try beta
+        if (err && err.statusCode === 400) {
+          try {
+            policies = await graphGetAll(token, `${BETA}/identity/conditionalAccess/policies`);
+          } catch (err2) {
+            if (isLicenceError(err2)) throw new LicenceUnavailableError('Conditional Access Policies');
+            throw err2;
+          }
+        } else if (isLicenceError(err)) {
+          throw new LicenceUnavailableError('Conditional Access Policies');
+        } else {
+          throw err;
+        }
+      }
     } catch (err) {
-      if (isLicenceError(err)) throw new LicenceUnavailableError('Conditional Access Policies');
       throw err;
     }
     const resources = {};
@@ -656,9 +1947,24 @@ const intuneCompliance = {
   async pull(token) {
     let policies;
     try {
-      policies = await graphGetAll(token, '/deviceManagement/deviceCompliancePolicies');
+      try {
+        policies = await graphGetAll(token, '/deviceManagement/deviceCompliancePolicies');
+      } catch (err) {
+        // Some tenants return 400 on v1.0 for deviceManagement endpoints — try beta
+        if (err && err.statusCode === 400) {
+          try {
+            policies = await graphGetAll(token, `${BETA}/deviceManagement/deviceCompliancePolicies`);
+          } catch (err2) {
+            if (isLicenceError(err2)) throw new LicenceUnavailableError('Intune Compliance Policies');
+            throw err2;
+          }
+        } else if (isLicenceError(err)) {
+          throw new LicenceUnavailableError('Intune Compliance Policies');
+        } else {
+          throw err;
+        }
+      }
     } catch (err) {
-      if (isLicenceError(err)) throw new LicenceUnavailableError('Intune Compliance Policies');
       throw err;
     }
     const resources = {};
@@ -1243,7 +2549,37 @@ const COLLECTORS = {
   intune_ep_firewall:               intuneEpFirewall,
   intune_ep_disk_encryption:        intuneEpDiskEncryption,
   intune_ep_asr:                    intuneEpAsr,
+  sharepoint_sites:                  sharepointSites,
+  sharepoint_tenant_settings:        sharepointTenantSettings,
+  teams_policies_messaging:          teamsMessagingPolicies,
+  teams_membership:                  teamsMembership,
+  teams_policies_meetings:           teamsMeetingPolicies,
+  teams_app_permission_policies:     teamsAppPermissionPolicies,
+  teams_channels_policies:           teamsChannelsPolicies,
+  teams_org_app_settings:            teamsOrgAppSettings,
+  exchange_mailboxes:                exchangeMailboxes,
+  exchange_mailbox_security:         exchangeMailboxSecurity,
+  exchange_connectors:               exchangeConnectors,
+  exchange_transport_rules:          exchangeTransportRules,
 };
+
+// Merge grouped per-area collector exports (if available) into the registry.
+// This allows collectors to be organized under `collectors/<area>/index.js`
+// while preserving existing top-level keys.
+try {
+  if (exchangeGroup) {
+    for (const [k, v] of Object.entries(exchangeGroup)) {
+      if (!COLLECTORS[k]) COLLECTORS[k] = v;
+    }
+  }
+} catch (e) {}
+try {
+  if (teamsGroup) {
+    for (const [k, v] of Object.entries(teamsGroup)) {
+      if (!COLLECTORS[k]) COLLECTORS[k] = v;
+    }
+  }
+} catch (e) {}
 
 const ALL_PERMISSIONS = [
   { permission: 'Policy.Read.All',                           type: 'Application', purpose: 'Read CA policies, auth policies, security defaults' },
@@ -1252,6 +2588,17 @@ const ALL_PERMISSIONS = [
   { permission: 'Group.Read.All',                            type: 'Application', purpose: 'Read security and M365 groups' },
   { permission: 'Application.Read.All',                      type: 'Application', purpose: 'Read app registrations, permissions, redirect URIs' },
   { permission: 'AuditLog.Read.All',                         type: 'Application', purpose: 'Read MFA registration and authentication method data (Tenant Insights — requires Entra ID P1/P2)' },
+  { permission: 'Sites.Read.All',                            type: 'Application', purpose: 'Read SharePoint site collections, drives and sharing entries' },
+  { permission: 'Sites.Manage.All',                          type: 'Application', purpose: 'Manage SharePoint sites and drive-level sharing (restore)' },
+  { permission: 'SharePointTenantSettings.Read.All',         type: 'Application', purpose: 'Read SharePoint tenant-level security and sharing settings' },
+  { permission: 'SharePointTenantSettings.ReadWrite.All',    type: 'Application', purpose: 'Restore SharePoint tenant-level security and sharing settings' },
+  { permission: 'Team.ReadBasic.All',                        type: 'Application', purpose: 'Read basic Microsoft Teams metadata, members and owners' },
+  { permission: 'TeamSettings.ReadWrite.All',                type: 'Application', purpose: 'Restore Teams settings and configuration' },
+  { permission: 'TeamworkAppSettings.Read.All',              type: 'Application', purpose: 'Read Teams organization app settings' },
+  { permission: 'TeamworkAppSettings.ReadWrite.All',         type: 'Application', purpose: 'Restore Teams organization app settings' },
+  { permission: 'GroupMember.ReadWrite.All',                 type: 'Application', purpose: 'Restore Teams and Microsoft 365 group membership (members and owners)' },
+  { permission: 'MailboxSettings.Read',                       type: 'Application', purpose: 'Read user mailbox settings (automatic replies, time zone, language)' },
+  { permission: 'MailboxSettings.ReadWrite',                  type: 'Application', purpose: 'Restore user mailbox security settings (automatic replies, time zone, language)' },
   { permission: 'DeviceManagementConfiguration.Read.All',    type: 'Application', purpose: 'Read Intune compliance and config policies' },
   { permission: 'DeviceManagementApps.Read.All',                  type: 'Application', purpose: 'Read app protection policies (MAM)' },
   { permission: 'DeviceManagementServiceConfig.Read.All',         type: 'Application', purpose: 'Read Mobile Threat Defense connector states' },
@@ -1327,3 +2674,8 @@ function getAllCollectors() {
 }
 
 module.exports = { COLLECTORS, ALL_PERMISSIONS, getCollector, getAllCollectors, LicenceUnavailableError, isLicenceError };
+
+// Also expose individual collectors at top-level keyed by their areaKey
+for (const key of Object.keys(COLLECTORS)) {
+  module.exports[key] = COLLECTORS[key];
+}

@@ -5,8 +5,44 @@ const { getCollector, getAllCollectors } = require('../collectors');
 const { createSyncJob, runSync, getJob } = require('../engine/sync');
 const { restoreResource } = require('../engine/restore');
 const { computeDrift, stableHash } = require('../engine/drift');
+const { getAccessToken } = require('../services/auth');
+const { resolveTenantAuthContext } = require('../services/tenantAuth');
 const logger = require('../utils/logger');
 const router = express.Router();
+
+function isCustomArea(areaKey) {
+  try {
+    const collector = getCollector(areaKey);
+    return !!collector?.isCustom;
+  } catch {
+    return false;
+  }
+}
+
+function validateAreaReadAccess(tenantPermRow, areaKey, noPermsMessage) {
+  if (!tenantPermRow?.permissions_json) {
+    if (isCustomArea(areaKey)) return null;
+    return { error: 'permission_missing', message: noPermsMessage };
+  }
+
+  try {
+    const { areas } = JSON.parse(tenantPermRow.permissions_json);
+    const areaPerm = (areas || []).find(a => a.areaKey === areaKey);
+    if (!areaPerm && isCustomArea(areaKey)) return null;
+    if (!areaPerm || !areaPerm.canRead) {
+      return {
+        error: 'permission_missing',
+        message: `Access denied. Add these permissions: ${(areaPerm?.missingRead || []).join(', ')}`,
+        missingPermissions: areaPerm?.missingRead || [],
+      };
+    }
+  } catch {
+    if (isCustomArea(areaKey)) return null;
+    return { error: 'permission_missing', message: 'Permissions are invalid. Run Refresh Permissions first.' };
+  }
+
+  return null;
+}
 
 // GET /api/areas/:tenantId — list all resource areas with latest drift status
 router.get('/:tenantId', (req, res) => {
@@ -21,9 +57,39 @@ router.get('/:tenantId', (req, res) => {
     let monitorOnlyKeys = [];
     try {
       const collector = getCollector(area.area_key);
-      watchableKeys    = collector.watchableKeys    || [];
       isCustom         = !!collector.isCustom;
       monitorOnlyKeys  = collector.monitorOnlyKeys  || [];
+
+      // Prefer per-area overview grouping if available (e.g., 'exchange', 'teams')
+      try {
+        const areaGroup = (area.area_key || '').split('_')[0];
+        // Support both grouped subfolder overview and flat per-area overview file naming
+        let overview = null;
+        try {
+          // Prefer flat file: collectors/<areaGroup>_overview.js
+          overview = require(`../collectors/${areaGroup}_overview`);
+        } catch (err) {
+          // Fallback to folder-based overview: collectors/<areaGroup>/overview.js
+          try { overview = require(`../collectors/${areaGroup}/overview`); } catch (e) { overview = null; }
+        }
+        // Final fallback: unified collectors/overview.js exports group overviews
+        if (!overview) {
+          try {
+            const grouped = require('../collectors/overview');
+            if (grouped && (grouped[`${areaGroup}Overview`] || grouped[areaGroup] || (grouped.groupOverviews && grouped.groupOverviews[areaGroup]))) {
+              overview = grouped[`${areaGroup}Overview`] || grouped[areaGroup] || (grouped.groupOverviews && grouped.groupOverviews[areaGroup]);
+            }
+          } catch (e) { overview = null; }
+        }
+        if (overview && overview.perCollectorWatchableKeys && overview.perCollectorWatchableKeys[area.area_key]) {
+          watchableKeys = overview.perCollectorWatchableKeys[area.area_key];
+        } else {
+          watchableKeys = collector.watchableKeys || [];
+        }
+      } catch (e) {
+        // No overview available for this group — fallback to collector
+        watchableKeys = collector.watchableKeys || [];
+      }
     } catch { /* unknown area — skip */ }
     return {
       ...area,
@@ -48,16 +114,16 @@ router.post('/:tenantId/:areaKey/pull', async (req, res) => {
   const db = getDb();
 
   const tenant = db.prepare('SELECT permissions_json FROM tenants WHERE id = ?').get(tenantId);
-  if (tenant?.permissions_json) {
-    const { areas } = JSON.parse(tenant.permissions_json);
-    const area = areas?.find(a => a.areaKey === areaKey);
-    if (area && !area.canRead) {
-      return res.status(403).json({
-        error: 'permission_missing',
-        message: `Sync is locked. Add these permissions to your App Registration: ${area.missingRead.join(', ')}`,
-        missingPermissions: area.missingRead
-      });
-    }
+  const permissionError = validateAreaReadAccess(
+    tenant,
+    areaKey,
+    'Permissions not checked for this tenant. Run Refresh Permissions first.'
+  );
+  if (permissionError) {
+    return res.status(403).json({
+      ...permissionError,
+      message: permissionError.message.replace('Access denied. Add these permissions:', 'Sync is locked. Add these permissions to your App Registration:'),
+    });
   }
 
   const jobId = createSyncJob(tenantId, areaKey);
@@ -68,15 +134,71 @@ router.post('/:tenantId/:areaKey/pull', async (req, res) => {
 // GET /api/areas/:tenantId/:areaKey/live — get latest live snapshot
 router.get('/:tenantId/:areaKey/live', (req, res) => {
   const db = getDb();
+  // Require read permission for this area before returning live data
+  const tenantPermRow = db.prepare('SELECT permissions_json FROM tenants WHERE id = ?').get(req.params.tenantId);
+  const permissionError = validateAreaReadAccess(
+    tenantPermRow,
+    req.params.areaKey,
+    'Permissions not checked for this tenant. Run Refresh Permissions first.'
+  );
+  if (permissionError) return res.status(403).json(permissionError);
   const snap = db.prepare('SELECT * FROM live_snapshots WHERE tenant_id = ? AND area_key = ? ORDER BY pulled_at DESC LIMIT 1')
     .get(req.params.tenantId, req.params.areaKey);
   if (!snap) return res.status(404).json({ error: 'No live snapshot yet. Pull first.' });
   res.json({ ...snap, resources: JSON.parse(snap.resources) });
 });
 
+// GET /api/areas/:tenantId/:areaKey/resource/:resourceId — get single resource detail
+router.get('/:tenantId/:areaKey/resource/:resourceId', async (req, res) => {
+  const { tenantId, areaKey, resourceId } = req.params;
+  const db = getDb();
+
+  // Require read permission for this area before returning resource data
+  const tenantPermRow = db.prepare('SELECT permissions_json FROM tenants WHERE id = ?').get(tenantId);
+  const permissionError = validateAreaReadAccess(
+    tenantPermRow,
+    areaKey,
+    'Permissions not checked for this tenant. Run Refresh Permissions first.'
+  );
+  if (permissionError) return res.status(403).json(permissionError);
+
+  // Try collector-specific live fetch if available (requires tenant credentials)
+  try {
+    const collector = getCollector(areaKey);
+    if (collector && typeof collector.get === 'function') {
+      const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
+      if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
+      const authCtx = resolveTenantAuthContext(tenant.id);
+      const token = await getAccessToken(authCtx.authorityTenantId, authCtx.clientId, authCtx.clientSecret);
+      const r = await collector.get(token, resourceId);
+      if (!r) return res.status(404).json({ error: 'resource_not_found', message: 'Resource not found via collector' });
+      return res.json(r);
+    }
+  } catch (err) {
+    // Fall through to snapshot lookup on error
+  }
+
+  // Fallback: return from latest live snapshot if present
+  const snap = db.prepare('SELECT resources FROM live_snapshots WHERE tenant_id = ? AND area_key = ? ORDER BY pulled_at DESC LIMIT 1')
+    .get(tenantId, areaKey);
+  if (!snap) return res.status(404).json({ error: 'No live snapshot yet. Pull first.' });
+  const resources = JSON.parse(snap.resources || '{}');
+  const resObj = resources[resourceId];
+  if (!resObj) return res.status(404).json({ error: 'Resource not found in latest snapshot' });
+  res.json(resObj);
+});
+
 // GET /api/areas/:tenantId/:areaKey/baseline — get current baseline
 router.get('/:tenantId/:areaKey/baseline', (req, res) => {
   const db = getDb();
+  const tenantPermRow = db.prepare('SELECT permissions_json FROM tenants WHERE id = ?').get(req.params.tenantId);
+  // Require read permission for baseline access
+  const permissionError = validateAreaReadAccess(
+    tenantPermRow,
+    req.params.areaKey,
+    'Permissions not checked for this tenant. Run Refresh Permissions first.'
+  );
+  if (permissionError) return res.status(403).json(permissionError);
   const baseline = db.prepare('SELECT * FROM baselines WHERE tenant_id = ? AND area_key = ?')
     .get(req.params.tenantId, req.params.areaKey);
   if (!baseline) return res.status(404).json({ error: 'No baseline set for this area' });
@@ -193,6 +315,14 @@ router.post('/:tenantId/:areaKey/baseline/restore/:historyId', (req, res) => {
 // GET /api/areas/:tenantId/:areaKey/drift — latest drift result with full detail
 router.get('/:tenantId/:areaKey/drift', (req, res) => {
   const db = getDb();
+  const tenantPermRow = db.prepare('SELECT permissions_json FROM tenants WHERE id = ?').get(req.params.tenantId);
+  const permissionError = validateAreaReadAccess(
+    tenantPermRow,
+    req.params.areaKey,
+    'Permissions not checked for this tenant. Run Refresh Permissions first.'
+  );
+  if (permissionError) return res.status(403).json(permissionError);
+
   const drift = db.prepare('SELECT * FROM drift_results WHERE tenant_id = ? AND area_key = ? ORDER BY checked_at DESC LIMIT 1')
     .get(req.params.tenantId, req.params.areaKey);
   if (!drift) return res.status(404).json({ error: 'No drift check run yet' });
@@ -227,6 +357,34 @@ router.post('/:tenantId/:areaKey/restore', async (req, res) => {
   const dryRun = req.query.dryRun === 'true';
   if (!resourceId) return res.status(400).json({ error: 'resourceId required' });
 
+  // Permission guards: dry-run requires read; actual restore requires write
+  const db = getDb();
+  const tenantPermRow = db.prepare('SELECT permissions_json FROM tenants WHERE id = ?').get(tenantId);
+  if (!tenantPermRow?.permissions_json) {
+    return res.status(403).json({ error: 'permission_missing', message: 'Permissions not checked for this tenant. Run Refresh Permissions first.' });
+  }
+  try {
+    const { areas } = JSON.parse(tenantPermRow.permissions_json);
+    const areaPerm = (areas || []).find(a => a.areaKey === areaKey);
+    if (!areaPerm) {
+      return res.status(403).json({ error: 'permission_missing', message: 'Area permissions not available. Run Refresh Permissions first.' });
+    }
+    if (dryRun) {
+      if (!areaPerm.canRead) {
+        return res.status(403).json({ error: 'permission_missing', message: `Read access required for dry-run. Missing: ${(areaPerm?.missingRead || []).join(', ')}`, missingPermissions: areaPerm?.missingRead || [] });
+      }
+    } else {
+      if (areaPerm.restoreSupported === false) {
+        return res.status(403).json({ error: 'restore_not_supported', message: areaPerm.restoreReason || 'Restore is not supported for this area.' });
+      }
+      if (!(areaPerm.canRestore ?? areaPerm.canWrite)) {
+        return res.status(403).json({ error: 'permission_missing', message: `Write access required to perform restore. Missing: ${(areaPerm?.missingWrite || []).join(', ')}`, missingPermissions: areaPerm?.missingWrite || [] });
+      }
+    }
+  } catch (e) {
+    return res.status(403).json({ error: 'permission_missing', message: 'Permissions are invalid. Run Refresh Permissions first.' });
+  }
+
   const effectiveType = restoreType || (propertyPath ? 'manual_property' : 'manual_full');
 
   if (dryRun) {
@@ -258,6 +416,19 @@ router.post('/:tenantId/:areaKey/restore', async (req, res) => {
           : { ...baselineRes };
       }
 
+      // Attempt to produce non-destructive repair guidance when available from the collector
+      let repairPlan = null;
+      try {
+        const collector = getCollector(areaKey);
+        if (collector && typeof collector.repairPlan === 'function') {
+          const authCtx = resolveTenantAuthContext(tenant.id);
+          const token = await getAccessToken(authCtx.authorityTenantId, authCtx.clientId, authCtx.clientSecret);
+          repairPlan = await collector.repairPlan(token, resourceId, baselineRes, liveRes || {});
+        }
+      } catch (err) {
+        logger.warn({ err, tenantId, areaKey, resourceId }, 'Collector repair plan generation failed');
+      }
+
       logger.info({ tenantId, areaKey, resourceId, propertyPath, dryRun: true }, 'Restore dry-run computed');
       return res.json({
         dryRun: true,
@@ -267,6 +438,7 @@ router.post('/:tenantId/:areaKey/restore', async (req, res) => {
         patchBody: patchPayload,
         baselineValues: propertyPath ? { [propertyPath]: baselineRes[propertyPath] } : baselineRes,
         liveValues:     propertyPath ? { [propertyPath]: liveRes?.[propertyPath] } : liveRes,
+        repairPlan,
       });
     } catch (err) {
       logger.warn({ err, tenantId, areaKey, resourceId }, 'Restore dry-run failed');
@@ -297,6 +469,20 @@ router.patch('/:tenantId/:areaKey/auto-restore', (req, res) => {
 // GET /api/areas/:tenantId/:areaKey/restore-log
 router.get('/:tenantId/:areaKey/restore-log', (req, res) => {
   const db = getDb();
+  // Require read permission for restore log access
+  const tenantPermRow = db.prepare('SELECT permissions_json FROM tenants WHERE id = ?').get(req.params.tenantId);
+  if (!tenantPermRow?.permissions_json) {
+    return res.status(403).json({ error: 'permission_missing', message: 'Permissions not checked for this tenant. Run Refresh Permissions first.' });
+  }
+  try {
+    const { areas } = JSON.parse(tenantPermRow.permissions_json);
+    const areaPerm = (areas || []).find(a => a.areaKey === req.params.areaKey);
+    if (!areaPerm || !areaPerm.canRead) {
+      return res.status(403).json({ error: 'permission_missing', message: `Access denied. Add these permissions: ${(areaPerm?.missingRead || []).join(', ')}`, missingPermissions: areaPerm?.missingRead || [] });
+    }
+  } catch (e) {
+    return res.status(403).json({ error: 'permission_missing', message: 'Permissions are invalid. Run Refresh Permissions first.' });
+  }
   const log = db.prepare('SELECT * FROM restore_log WHERE tenant_id=? AND area_key=? ORDER BY restored_at DESC LIMIT 50')
     .all(req.params.tenantId, req.params.areaKey);
   res.json(log);

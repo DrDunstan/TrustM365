@@ -1,0 +1,42 @@
+[
+  {
+    "control_id": "oib:win-oib-es-encryption-d-bitlocker-os-disk-v3-7:select-the-encryption-method-for-operating-system-drives",
+    "title": "Select the encryption method for operating system drives",
+    "recommended_value": "XTS-AES 256-bit",
+    "actual_value": "XTS-AES 256-bit",
+    "status": "compliant",
+    "mdm_csp": "./Device/Vendor/MSFT/BitLocker/OS/EncryptionMethod",
+    "registry_key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\FVE\\EncryptionMethod",
+    "notes": "Maps to BitLocker CSP EncryptionMethod for OS drives. Prefer XTS-AES-256 where supported."
+  },
+  {
+    "control_id": "oib:win-oib-es-encryption-d-bitlocker-os-disk-v3-7:require-device-encryption",
+    "title": "Require Device Encryption",
+    "recommended_value": true,
+    "actual_value": "Enabled",
+    "status": "compliant",
+    "mdm_csp": "./Device/Vendor/MSFT/BitLocker/RequireDeviceEncryption",
+    "registry_key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\FVE\\RequireDeviceEncryption",
+    "notes": "Enables device encryption; may map to Windows Device Encryption on some SKUs."
+  },
+  {
+    "control_id": "oib:win-oib-es-encryption-d-bitlocker-os-disk-v3-7:configure-tpm-startup",
+    "title": "Configure TPM startup",
+    "recommended_value": "Require TPM",
+    "actual_value": "Require TPM",
+    "status": "compliant",
+    "mdm_csp": "./Device/Vendor/MSFT/BitLocker/OS/ConfigureTPMStartup",
+    "registry_key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\FVE\\TPMStartup",
+    "notes": "Controls TPM startup behaviour. Values are implementation-specific; validate per OS."
+  },
+  {
+    "control_id": "oib:win-oib-es-encryption-d-bitlocker-os-disk-v3-7:allow-bitlocker-without-a-compatible-tpm-requires-a-password-or-a-startup-key-on-a-usb-flash-drive",
+    "title": "Allow BitLocker without a compatible TPM (requires a password or a startup key on a USB flash drive)",
+    "recommended_value": false,
+    "actual_value": "False",
+    "status": "compliant",
+    "mdm_csp": "./Device/Vendor/MSFT/BitLocker/OS/AllowBitLockerWithoutTPM",
+    "registry_key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\FVE\\AllowWithoutTPM",
+    "notes": "When false, BitLocker requires TPM; when true, allows use of startup key/password."
+  }
+]

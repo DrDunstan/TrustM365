@@ -12,6 +12,16 @@ TrustM365 runs anywhere Node.js runs. Three deployment options are available.
 
 ---
 
+## Migration
+
+If you are upgrading an existing TrustM365 installation from v1.0 to v1.1, use the dedicated migration runbook:
+
+- [Migration Guide - v1.0 to v1.1](migration.md)
+
+The migration guide includes backup file placement, restore target paths, staging rehearsal, cutover, validation, rollback, and deployment-specific notes.
+
+---
+
 ## Option 1 — Local Quickstart
 
 The fastest way to get TrustM365 running. No cloud account, no containers — just Node.js on your machine.
@@ -114,6 +124,27 @@ npm run db:backup
 
 Creates a timestamped copy of your database in `data/backups/`.
 
+### Optional SIEM enablement (Log Analytics + Sentinel)
+
+After deployment, you can enable direct TrustM365 telemetry ingestion to Azure Log Analytics and use Sentinel analytics/workbooks.
+
+1. Configure workspace settings in **MSSP Settings -> Log Analytics and Sentinel**.
+2. Validate bundled assets:
+
+```bash
+npm run sentinel:validate
+```
+
+3. Deploy bundled analytic rules:
+
+```powershell
+npm run sentinel:deploy -- -SubscriptionId <subId> -ResourceGroup <rg> -WorkspaceName <workspace> -TablePrefix TrustM365
+```
+
+4. Import workbook JSON from `data/sentinel/workbooks/TrustM365-Drift-Monthly.workbook.json`.
+
+See `docs/integrations/sentinel-log-analytics.md` for full architecture and operations guidance.
+
 ---
 
 ## Option 2 — Azure App Service
@@ -170,7 +201,13 @@ az webapp config appsettings set \
     DATABASE_PATH="/home/data/trustm365.db" \
     WEBSITES_ENABLE_APP_SERVICE_STORAGE="true"
 
-# 6. Deploy
+# 6. Set startup command (recommended for this monorepo layout)
+az webapp config set \
+  --name trustm365-yourorg \
+  --resource-group trustm365-rg \
+  --startup-file "cd backend && npm install && node src/index.js"
+
+# 7. Deploy
 az webapp up \
   --name trustm365-yourorg \
   --resource-group trustm365-rg \
@@ -181,7 +218,9 @@ Dashboard available at: `https://trustm365-yourorg.azurewebsites.net`
 
 Setting `NODE_ENV=production` causes the backend to bind on `0.0.0.0` (required for Azure's platform routing) and serves the built `frontend/dist/` directory directly — no separate nginx container needed. `PORT=8080` is required by Azure App Service — do not change this.
 
-> **Single-process deployment:** In production mode, Express automatically serves the React frontend from `frontend/dist/` and handles the SPA catch-all for React Router. Run `npm run build` (or the GitHub Actions workflow) to produce this directory before deploying.
+The startup command above is recommended when deploying this repository as a monorepo so Azure starts the backend from the correct working directory and installs backend dependencies during startup.
+
+> **Single-process deployment:** In production mode, Express automatically serves the React frontend from `frontend/dist/` and handles the SPA catch-all for React Router. Run `npm run build` to produce this directory before deploying.
 
 ### Persistent storage
 
@@ -212,14 +251,9 @@ az webapp config appsettings set \
 
 This is not needed when both are served from the same App Service (the default `az webapp up` deployment).
 
-### Continuous deployment via GitHub Actions
+### Continuous deployment
 
-A workflow file is included at `.github/workflows/azure-deploy.yml`.
-
-1. In the Azure Portal: App Service → **Deployment Center** → download the **Publish Profile**
-2. In your GitHub repo: **Settings → Secrets → Actions** → add secret `AZURE_WEBAPP_PUBLISH_PROFILE`
-3. Update `app-name` in `.github/workflows/azure-deploy.yml` to your app name
-4. Push to `main` — deploys automatically on every push
+No deployment workflow is included in this repository by default. If you want CI/CD deployment, add your own pipeline in your target platform (for example GitHub Actions, Azure DevOps, or another orchestrator) and ensure it runs `npm run build` before publishing.
 
 ### Updating
 
@@ -261,13 +295,13 @@ cp .env.example .env
 # Set DATABASE_PATH=/data/trustm365.db
 # Set NODE_ENV=production
 
-# 4. Start TrustM365
-docker compose up -d
+# 4. Build and start TrustM365
+docker compose up -d --build
 ```
 
 Dashboard available at: `http://your-server-ip`
 
-The `docker-compose.yml` sets `NODE_ENV=production` automatically, so the backend binds to `0.0.0.0` and is reachable from the nginx container on the internal network. The SQLite database is stored in a named Docker volume and persists across restarts and rebuilds.
+The `docker-compose.yml` builds the frontend image from source, bakes in nginx configuration from `nginx.conf`, and sets `NODE_ENV=production` for the backend automatically. The SQLite database is stored in a named Docker volume and persists across restarts and rebuilds.
 
 ### Environment file (Docker)
 
@@ -328,7 +362,7 @@ Place your SSL certificate and private key in a `certs/` folder at the repo root
 | Azure — frontend shows 404 | `frontend/dist/` not built | Run `npm run build` from the repo root before deploying |
 | Docker — health check failing | `/api/health` returning non-200 | Check database path is writable; review backend logs |
 | Azure — API calls failing from browser | FRONTEND_URL not set on split deployment | Set `FRONTEND_URL` to the frontend App Service URL |
-| Docker — backend unreachable from nginx | `NODE_ENV` not set to `production` | Set `NODE_ENV=production` in `.env` so backend binds to `0.0.0.0` |
+| Docker — backend unreachable from nginx | Docker network or backend health issue | Check `docker compose ps` and `docker compose logs backend`; verify backend is `healthy` and listening on port 3001 |
 | Docker — database lost on restart | Volume not mounted | Set `DATABASE_PATH=/data/trustm365.db` and confirm the volume in `docker-compose.yml` |
 
 → **Next: [Register your first tenant and set a baseline](usage.md)**

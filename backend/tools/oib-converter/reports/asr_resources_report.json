@@ -1,0 +1,16 @@
+[
+  {
+    "refId": "oib:win-oib-es-attack-surface-reduction-d-asr-rules-audit-mode-v3-1:settings",
+    "refDisplayName": "Win - OIB - ES - Attack Surface Reduction - D - ASR Rules (Audit Mode) - v3.1 settings",
+    "status": "noMatch",
+    "matchAll": [],
+    "perKeyMatches": {
+      "settings[settingDefinitionId=device_vendor_msft_policy_config_defender_useadvancedprotectionagainstransomware].value": [],
+      "settings.deviceVendorMsftPolicyConfigDefenderEnablecontrolledfolderaccess2": []
+    },
+    "matchedCount": 0,
+    "matchedSamples": [],
+    "presentInPolicies": [],
+    "detail": "Setting not present in any live resource"
+  }
+]

@@ -1,0 +1,32 @@
+[
+  {
+    "control_id": "oib:win-oib-es-defender-antivirus-d-av-configuration-v3-3:allow-cloud-protection",
+    "title": "Allow Cloud Protection",
+    "recommended_value": "Allowed",
+    "actual_value": "Allowed",
+    "status": "compliant",
+    "mdm_csp": null,
+    "registry_key": null,
+    "notes": null
+  },
+  {
+    "control_id": "oib:win-oib-es-defender-antivirus-d-av-configuration-v3-3:enable-network-protection",
+    "title": "Enable Network Protection",
+    "recommended_value": "Enabled",
+    "actual_value": "Enabled",
+    "status": "compliant",
+    "mdm_csp": null,
+    "registry_key": null,
+    "notes": null
+  },
+  {
+    "control_id": "oib:win-oib-es-defender-antivirus-d-av-configuration-v3-3:pua-protection",
+    "title": "Pua Protection",
+    "recommended_value": "Enabled",
+    "actual_value": "Enabled",
+    "status": "compliant",
+    "mdm_csp": null,
+    "registry_key": null,
+    "notes": null
+  }
+]

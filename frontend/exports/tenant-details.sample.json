@@ -1,0 +1,17 @@
+[
+  {
+    "tenantId": "tenant-123",
+    "tenantName": "Contoso Ltd",
+    "results": [
+      { "templateId": "ZT.PIM.1", "refId": "ZT.PIM.1", "status": "failed", "matchedSamples": [] },
+      { "templateId": "ZT.DC.2", "refId": "ZT.DC.2", "status": "partial", "matchedSamples": [ { "id": "device-1", "displayName": "Device One", "matchedPaths": [ { "path": "os.tpm", "expected": true, "actual": false } ] } ] }
+    ]
+  },
+  {
+    "tenantId": "tenant-456",
+    "tenantName": "Fabrikam Inc",
+    "results": [
+      { "templateId": "ZT.AUTH.1", "refId": "ZT.AUTH.1", "status": "failed", "matchedSamples": [] }
+    ]
+  }
+]

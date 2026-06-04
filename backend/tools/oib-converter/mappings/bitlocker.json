@@ -1,0 +1,122 @@
+{
+  "key": "bitlocker",
+  "display_name": "BitLocker (OS Disk)",
+  "category": "disk_encryption",
+  "policyType": "BitLocker",
+  "scope": "Device",
+  "required_licenses": ["Windows Enterprise"],
+  "source_url": "https://github.com/SkipToTheEndpoint/OpenIntuneBaseline/blob/main/WINDOWS/SETTINGSOUTPUT.md",
+  "settingsMap": {
+    "Select the encryption method for operating system drives": {
+      "mdm_csp": "./Device/Vendor/MSFT/BitLocker/OS/EncryptionMethod",
+      "registry_key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\FVE\\EncryptionMethod",
+      "type": "enum",
+      "allowed_values": [
+        "XTS-AES 256-bit",
+        "XTS-AES 128-bit",
+        "AES-CBC 256-bit",
+        "AES-CBC 128-bit"
+      ],
+      "notes": "Maps to BitLocker CSP EncryptionMethod for OS drives. Prefer XTS-AES-256 where supported.",
+      "property_path": "settings[name=Select the encryption method for operating system drives].value"
+    },
+    "Require Device Encryption": {
+      "mdm_csp": "./Device/Vendor/MSFT/BitLocker/RequireDeviceEncryption",
+      "registry_key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\FVE\\RequireDeviceEncryption",
+      "type": "boolean",
+      "notes": "Enables device encryption; may map to Windows Device Encryption on some SKUs.",
+      "property_path": "settings.storageRequireMobileDeviceEncryption",
+      "setting_definition_id": "device_vendor_msft_bitlocker_requiredeviceencryption"
+    },
+    "Configure TPM startup": {
+      "mdm_csp": "./Device/Vendor/MSFT/BitLocker/OS/ConfigureTPMStartup",
+      "registry_key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\FVE\\TPMStartup",
+      "type": "enum",
+      "allowed_values": [
+        "Require TPM",
+        "Do not allow startup PIN with TPM",
+        "Do not allow startup key with TPM"
+      ],
+      "notes": "Controls TPM startup behaviour. Values are implementation-specific; validate per OS.",
+      "property_path": "settings[name=Configure TPM startup].value"
+    },
+    "Allow BitLocker without a compatible TPM (requires a password or a startup key on a USB flash drive)": {
+      "mdm_csp": "./Device/Vendor/MSFT/BitLocker/OS/AllowBitLockerWithoutTPM",
+      "registry_key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\FVE\\AllowWithoutTPM",
+      "type": "boolean",
+      "notes": "When false, BitLocker requires TPM; when true, allows use of startup key/password.",
+      "property_path": "settings[name=Allow BitLocker without a compatible TPM (requires a password or a startup key on a USB flash drive)].value"
+    },
+    "Choose how BitLocker-protected operating system drives can be recovered": {
+      "mdm_csp": "./Device/Vendor/MSFT/BitLocker/OS/RecoveryOptions",
+      "registry_key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\FVE\\RecoveryOptions",
+      "type": "enum",
+      "allowed_values": [
+        "StoreRecoveryInformationToAAD",
+        "SaveToADDS",
+        "DoNotStore"
+      ],
+      "notes": "Maps recovery configuration; ensure backup to AAD when using Entra-joined devices.",
+      "property_path": "settings[name=Choose how BitLocker-protected operating system drives can be recovered].value"
+    },
+    "Configure encryption method for fixed data drives": {
+      "mdm_csp": "./Device/Vendor/MSFT/BitLocker/Fixed/EncryptionMethod",
+      "registry_key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\FVE\\FixedEncryptionMethod",
+      "type": "enum",
+      "allowed_values": [
+        "XTS-AES 256-bit",
+        "XTS-AES 128-bit",
+        "AES-CBC 256-bit",
+        "AES-CBC 128-bit"
+      ],
+      "notes": "Encryption method for fixed (data) drives. Prefer XTS-AES-256 where supported.",
+      "property_path": "settings[name=Configure encryption method for fixed data drives].value"
+    },
+    "Configure encryption method for removable data drives": {
+      "mdm_csp": "./Device/Vendor/MSFT/BitLocker/Removable/EncryptionMethod",
+      "registry_key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\FVE\\RemovableEncryptionMethod",
+      "type": "enum",
+      "allowed_values": [
+        "XTS-AES 256-bit",
+        "XTS-AES 128-bit",
+        "AES-CBC 256-bit",
+        "AES-CBC 128-bit"
+      ],
+      "notes": "Encryption method for removable (USB) drives. Consider user UX when enforcing stronger algorithms.",
+      "property_path": "settings[name=Configure encryption method for removable data drives].value"
+    },
+    "Choose how BitLocker-protected fixed data drives can be recovered": {
+      "mdm_csp": "./Device/Vendor/MSFT/BitLocker/Fixed/RecoveryOptions",
+      "registry_key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\FVE\\FixedRecoveryOptions",
+      "type": "enum",
+      "allowed_values": [
+        "StoreRecoveryInformationToAAD",
+        "SaveToADDS",
+        "DoNotStore"
+      ],
+      "notes": "Recovery options for fixed data drives; prefer backing up to Entra ID for cloud-managed devices.",
+      "property_path": "settings[name=Choose how BitLocker-protected fixed data drives can be recovered].value"
+    },
+    "Deny write access to removable drives not protected by BitLocker": {
+      "mdm_csp": "./Device/Vendor/MSFT/BitLocker/Removable/DenyWriteAccessToUnprotected",
+      "registry_key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\FVE\\DenyWriteAccessToUnprotectedRemovable",
+      "type": "boolean",
+      "notes": "Blocks write access to removable drives that are not BitLocker-protected to prevent data exfiltration.",
+      "property_path": "settings[name=Deny write access to removable drives not protected by BitLocker].value"
+    },
+    "Deny write access to fixed data drives not protected by BitLocker": {
+      "mdm_csp": "./Device/Vendor/MSFT/BitLocker/Fixed/DenyWriteAccessToUnprotected",
+      "registry_key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\FVE\\DenyWriteAccessToUnprotectedFixed",
+      "type": "boolean",
+      "notes": "Blocks write access to fixed drives that are not BitLocker-protected; may impact legacy apps.",
+      "property_path": "settings[name=Deny write access to fixed data drives not protected by BitLocker].value"
+    },
+    "Allow standard users to enable device encryption": {
+      "mdm_csp": "./Device/Vendor/MSFT/BitLocker/AllowStandardUserEncryption",
+      "registry_key": "HKLM\\SOFTWARE\\Policies\\Microsoft\\FVE\\AllowStandardUserEncryption",
+      "type": "boolean",
+      "notes": "When true, non-administrative users can enable device encryption during setup or OOBE.",
+      "property_path": "settings[name=Allow standard users to enable device encryption].value"
+    }
+  }
+}

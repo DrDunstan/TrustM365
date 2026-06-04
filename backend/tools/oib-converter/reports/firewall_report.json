@@ -1,0 +1,32 @@
+[
+  {
+    "control_id": "oib:win-oib-es-windows-firewall-d-firewall-configuration-v3-1:enable-domain-network-firewall",
+    "title": "Enable Domain Network Firewall",
+    "recommended_value": "True",
+    "actual_value": "True",
+    "status": "compliant",
+    "mdm_csp": null,
+    "registry_key": null,
+    "notes": null
+  },
+  {
+    "control_id": "oib:win-oib-es-windows-firewall-d-firewall-configuration-v3-1:default-inbound-action-for-domain-profile",
+    "title": "Default Inbound Action for Domain Profile",
+    "recommended_value": "Block",
+    "actual_value": "Block",
+    "status": "compliant",
+    "mdm_csp": null,
+    "registry_key": null,
+    "notes": null
+  },
+  {
+    "control_id": "oib:win-oib-es-windows-firewall-d-firewall-configuration-v3-1:enable-private-network-firewall",
+    "title": "Enable Private Network Firewall",
+    "recommended_value": "True",
+    "actual_value": "True",
+    "status": "compliant",
+    "mdm_csp": null,
+    "registry_key": null,
+    "notes": null
+  }
+]

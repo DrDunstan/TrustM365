@@ -2,6 +2,10 @@
 
 > A baseline is your declaration of the correct, intended configuration for a resource area. TrustM365 compares every subsequent sync against it and alerts you when anything drifts.
 
+![Baseline editor view](./visuals/guide-baseline-editor.png)
+
+_Visual reference: Baseline Editor with resource selection and monitoring setup._
+
 ---
 
 ## Concepts
@@ -51,6 +55,8 @@ When you first open the Baseline Editor for an area, all resources appear in the
 ## Step 4 — Choose a monitoring mode
 
 Expand any included resource to choose how it is monitored.
+
+Note: The Area View no longer displays a per-collector "Fields captured" list. To view available watchable properties, open the Baseline Editor for the area (Edit Baseline). For custom collectors, use the Custom Collectors Test Pull to discover fields before creating the collector.
 
 ### Properties mode (recommended)
 

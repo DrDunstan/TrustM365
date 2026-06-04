@@ -1,0 +1,16 @@
+[
+  {
+    "refId": "oib:win-oib-es-encryption-d-bitlocker-os-disk-v3-7:settings",
+    "refDisplayName": "Win - OIB - ES - Encryption - D - BitLocker (OS Disk) - v3.7 settings",
+    "status": "noMatch",
+    "matchAll": [],
+    "perKeyMatches": {
+      "settings[settingDefinitionId=device_vendor_msft_bitlocker_requiredeviceencryption].value": [],
+      "settings.storageRequireMobileDeviceEncryption": []
+    },
+    "matchedCount": 0,
+    "matchedSamples": [],
+    "presentInPolicies": [],
+    "detail": "Setting not present in any live resource"
+  }
+]

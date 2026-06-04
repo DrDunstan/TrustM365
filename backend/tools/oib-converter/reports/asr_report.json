@@ -1,0 +1,32 @@
+[
+  {
+    "control_id": "oib:win-oib-es-attack-surface-reduction-d-asr-rules-l2-v3-7:block-all-office-applications-from-creating-child-processes",
+    "title": "Block all Office applications from creating child processes",
+    "recommended_value": "Block",
+    "actual_value": "Block",
+    "status": "compliant",
+    "mdm_csp": null,
+    "registry_key": null,
+    "notes": null
+  },
+  {
+    "control_id": "oib:win-oib-es-attack-surface-reduction-d-asr-rules-l2-v3-7:block-javascript-or-vbscript-from-launching-downloaded-executable-content",
+    "title": "Block JavaScript or VBScript from launching downloaded executable content",
+    "recommended_value": "Block",
+    "actual_value": "Block",
+    "status": "compliant",
+    "mdm_csp": null,
+    "registry_key": null,
+    "notes": null
+  },
+  {
+    "control_id": "oib:win-oib-es-attack-surface-reduction-d-asr-rules-l2-v3-7:enable-controlled-folder-access",
+    "title": "Enable Controlled Folder Access",
+    "recommended_value": "Audit Mode",
+    "actual_value": "Audit Mode",
+    "status": "compliant",
+    "mdm_csp": null,
+    "registry_key": null,
+    "notes": null
+  }
+]

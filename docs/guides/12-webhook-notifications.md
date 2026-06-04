@@ -2,6 +2,10 @@
 
 TrustM365 can POST a JSON payload to a URL whenever drift is detected. This lets you integrate with Teams, Slack, PagerDuty, or any service that accepts an HTTP webhook.
 
+![MSSP Settings webhook section](./visuals/guide-mssp-settings.png)
+
+_Visual reference: webhook setup area under MSSP Settings._
+
 ---
 
 ## Setting up a webhook

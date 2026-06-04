@@ -2,6 +2,10 @@
 
 Navigate to **Portfolio Overview** in the MSSP section of the sidebar. This page shows all registered tenants at a glance with cross-tenant drift visibility.
 
+![Portfolio Overview page](./visuals/guide-portfolio-overview.png)
+
+_Visual reference: summary tiles, tenant coverage/status cards, and top-level filters._
+
 ---
 
 ## Summary strip

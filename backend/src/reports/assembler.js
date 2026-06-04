@@ -5,9 +5,9 @@
 // No dependency on in-memory caches.
 
 const { getDb }             = require('../database/init');
-const { decrypt }           = require('../utils/encryption');
 const { getAccessToken }    = require('../services/auth');
 const { fetchTenantOverview } = require('../collectors/overview');
+const { resolveTenantAuthContext } = require('../services/tenantAuth');
 
 function iso(dt) { return dt ? new Date(dt).toISOString() : null; }
 function safeJson(val, fallback = null) {
@@ -41,8 +41,8 @@ async function fetchFreshOverview(tenantId) {
   try {
     const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
     if (!tenant) return null;
-    const clientSecret = decrypt(tenant.client_secret_encrypted);
-    const token = await getAccessToken(tenant.tenant_id, tenant.client_id, clientSecret);
+    const authCtx = resolveTenantAuthContext(tenant.id);
+    const token = await getAccessToken(authCtx.authorityTenantId, authCtx.clientId, authCtx.clientSecret);
     return await fetchTenantOverview(token);
   } catch {
     // If Graph call fails at report time, fall back to null — report shows "not available"

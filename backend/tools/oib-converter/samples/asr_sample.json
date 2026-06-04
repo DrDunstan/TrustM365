@@ -1,0 +1,13 @@
+{
+  "name": "Win - OIB - ES - Attack Surface Reduction - D - ASR Rules (L2) - v3.7",
+  "description": "ASR L2 rules recommended",
+  "profileType": "Settings catalog",
+  "category": "Attack surface reduction",
+  "policyType": "Attack Surface Reduction Rules",
+  "platformSupported": "Windows 10 and later",
+  "settings": [
+    { "name": "Block all Office applications from creating child processes", "value": "Block" },
+    { "name": "Block JavaScript or VBScript from launching downloaded executable content", "value": "Block" },
+    { "name": "Enable Controlled Folder Access", "value": "Audit Mode" }
+  ]
+}

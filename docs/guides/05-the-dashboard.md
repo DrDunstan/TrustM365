@@ -2,6 +2,10 @@
 
 The tenant dashboard is the operational centre for a single tenant. Open it by clicking any tenant name in the sidebar.
 
+![Tenant dashboard overview](./visuals/guide-dashboard-tenant.png)
+
+_Visual reference: tenant-level header actions, insight tiles, and area controls in one screen._
+
 ---
 
 ## Layout

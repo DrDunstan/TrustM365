@@ -27,13 +27,14 @@ function scheduleSave() {
   if (!dbPath || !dbInstance) return;
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
+    if (!dbInstance) return;
     try {
       const data = dbInstance.export();
       const dir = path.dirname(dbPath);
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(dbPath, Buffer.from(data));
     } catch (err) {
-      console.error('[sqlite] Failed to persist database:', err.message);
+      console.error('[sqlite] Failed to persist database:', err && err.message ? err.message : err);
     }
   }, 500);
 }
@@ -157,8 +158,16 @@ class Database {
 
   close() {
     if (dbInstance) {
-      scheduleSave();
-      dbInstance.close();
+      try {
+        const data = dbInstance.export();
+        const dir = path.dirname(dbPath);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(dbPath, Buffer.from(data));
+      } catch (err) {
+        console.error('[sqlite] Failed to persist database during close:', err && err.message ? err.message : err);
+      }
+      clearTimeout(saveTimer);
+      try { dbInstance.close(); } catch (e) { /* ignore */ }
       dbInstance = null;
     }
   }

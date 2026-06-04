@@ -1,9 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   Shield, ExternalLink, CheckCircle, XCircle, Lock, Unlock,
   ChevronRight, AlertTriangle, RefreshCw, Eye, EyeOff
 } from 'lucide-react'
-import { tenantApi } from '../api/client.js'
+import { appRegistrationApi, tenantApi } from '../api/client.js'
 
 // ── Permission row inside the check results ───────────────────────────────────
 function PermRow({ name, granted, purpose }) {
@@ -29,8 +29,10 @@ function PermRow({ name, granted, purpose }) {
 
 // ── Area unlock summary ───────────────────────────────────────────────────────
 function AreaRow({ area }) {
-  const locked   = !area.canRead
-  const readOnly = area.canRead && !area.canWrite
+  const locked = !area.canRead
+  const canRestore = area.canRestore ?? area.canWrite
+  const readOnly = area.canRead && !canRestore
+  const restoreBlockedByCapability = area.restoreSupported === false
 
   return (
     <div className={`flex items-center gap-3 px-3 py-2 rounded-lg border text-xs
@@ -51,15 +53,41 @@ function AreaRow({ area }) {
             <span className="ml-2 text-gray-600 font-normal">· {area.licenceRequired}</span>
           )}
         </div>
-        {locked && area.missingRead.length > 0 && (
-          <div className="text-gray-600 mt-0.5">
-            Needs: <code className="text-gray-500">{area.missingRead.join(', ')}</code>
+        {((area.readPermissions && area.readPermissions.length > 0) || (area.writePermissions && area.writePermissions.length > 0)) && (
+          <div className="mt-0.5">
+            <div className="text-gray-600 text-xs flex flex-wrap items-center gap-2">
+              <span className="text-xs text-gray-400">Read:</span>
+              {(area.readPermissions || []).map(p => {
+                const missing = (area.missingRead || []).includes(p)
+                return (
+                  <code key={p} className={`font-mono text-xs px-1 py-0.5 rounded ${missing ? 'bg-gray-800 border border-gray-700 text-red-300' : 'bg-gray-800 border border-gray-700 text-green-300'}`}>
+                    {p}
+                  </code>
+                )
+              })}
+            </div>
+            {(area.writePermissions || []).length > 0 && (
+              <div className="text-yellow-700 mt-0.5 text-xs flex flex-wrap items-center gap-2">
+                <span className="text-xs text-gray-400">Write:</span>
+                {(area.writePermissions || []).map(p => {
+                  const missingW = (area.missingWrite || []).includes(p)
+                  return (
+                    <code key={p} className={`font-mono text-xs px-1 py-0.5 rounded ${missingW ? 'bg-yellow-950/20 border border-yellow-900 text-yellow-800' : 'bg-yellow-950/10 border border-yellow-900 text-green-300'}`}>
+                      {p}
+                    </code>
+                  )
+                })}
+              </div>
+            )}
           </div>
         )}
         {readOnly && (
           <div className="text-yellow-700 mt-0.5">
             Sync only — restore disabled.
-            {area.missingWrite.length > 0 && <span> Add: <code className="text-yellow-800">{area.missingWrite.join(', ')}</code></span>}
+            {restoreBlockedByCapability && (
+              <span> {area.restoreReason || 'Restore is not currently supported for this collector.'}</span>
+            )}
+            {!restoreBlockedByCapability && (area.missingWrite || []).length > 0 && <span> Add: <code className="text-yellow-800">{(area.missingWrite || []).join(', ')}</code></span>}
           </div>
         )}
       </div>
@@ -96,6 +124,21 @@ const AREA_GROUPS = [
       'intune_ep_asr',
     ],
   },
+  {
+    key:      'sharepoint',
+    label:    'SharePoint',
+    areaKeys: ['sharepoint_sites', 'sharepoint_tenant_settings'],
+  },
+  {
+    key:      'exchange',
+    label:    'Exchange Online',
+    areaKeys: ['exchange_mailboxes', 'exchange_mailbox_security', 'exchange_connectors', 'exchange_transport_rules'],
+  },
+  {
+    key:      'teams',
+    label:    'Microsoft Teams',
+    areaKeys: ['teams_policies_messaging', 'teams_policies_meetings', 'teams_membership', 'teams_app_permission_policies', 'teams_channels_policies', 'teams_org_app_settings'],
+  },
 ]
 
 // ── Permission list (shown on step 0 as the recommended baseline) ─────────────
@@ -108,18 +151,110 @@ const BASELINE_PERMISSIONS = [
   { p: 'AuditLog.Read.All',             purpose: 'MFA registration + authentication methods (Tenant Insights)',              recommended: true },
 ]
 
+const WORKLOAD_PERMISSIONS = [
+  { p: 'Sites.Read.All', purpose: 'SharePoint sites and sharing posture monitoring' },
+  { p: 'Sites.Manage.All', purpose: 'SharePoint site-level restore operations' },
+  { p: 'SharePointTenantSettings.Read.All', purpose: 'SharePoint tenant settings monitoring' },
+  { p: 'SharePointTenantSettings.ReadWrite.All', purpose: 'SharePoint tenant settings restore' },
+  { p: 'Team.ReadBasic.All', purpose: 'Teams metadata and membership monitoring' },
+  { p: 'TeamSettings.ReadWrite.All', purpose: 'Teams policy restore (messaging/meeting/channels/app permissions)' },
+  { p: 'TeamworkAppSettings.Read.All', purpose: 'Teams org app settings monitoring' },
+  { p: 'TeamworkAppSettings.ReadWrite.All', purpose: 'Teams org app settings restore' },
+  { p: 'GroupMember.ReadWrite.All', purpose: 'Teams membership restore (members and owners)' },
+  { p: 'MailboxSettings.Read', purpose: 'Exchange mailbox monitoring' },
+  { p: 'MailboxSettings.ReadWrite', purpose: 'Exchange mailbox security restore' },
+  { p: 'Policy.Read.All', purpose: 'Exchange connector and transport-rule monitoring (best effort)' },
+]
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 const STEPS = ['App Registration', 'Credentials', 'Permissions']
 
 export default function AddTenant({ navigate, showToast, onAdd }) {
   const [step, setStep]         = useState(0)
-  const [form, setForm]         = useState({ displayName: '', tenantId: '', clientId: '', clientSecret: '' })
+  const [mode, setMode]         = useState('new') // new | existing
+  const [form, setForm]         = useState({
+    displayName: '',
+    tenantId: '',
+    clientId: '',
+    clientSecret: '',
+    appRegistrationId: '',
+    authorityTenantId: '',
+  })
+  const [appRegistrations, setAppRegistrations] = useState([])
   const [errors, setErrors]     = useState({})
   const [showSecret, setShowSecret] = useState(false)
   const [checking, setChecking] = useState(false)  // validating creds + checking permissions
   const [permData, setPermData] = useState(null)   // { granted: [], areas: [] }
   const [submitting, setSubmitting] = useState(false)
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+  const guidRe = /^[0-9a-f-]{36}$/i
+
+  useEffect(() => {
+    appRegistrationApi.list()
+      .then(setAppRegistrations)
+      .catch(() => {})
+  }, [])
+
+  const tenantIdNormalized = (form.tenantId || '').trim().toLowerCase()
+  const suggestedApps = appRegistrations
+    .map(app => {
+      const bindings = Array.isArray(app.bindings) ? app.bindings : []
+      const exactBinding = guidRe.test(tenantIdNormalized)
+        ? bindings.find(b => (b.tenant_uuid || '').toLowerCase() === tenantIdNormalized)
+        : null
+      const tenantCount = Number(app.tenant_count || 0)
+      const hasHistory = tenantCount > 0
+      const hasMultiTenantHistory = tenantCount > 1
+      const score = exactBinding ? 100 : hasMultiTenantHistory ? 70 : hasHistory ? 40 : 0
+
+      return {
+        ...app,
+        exactBinding,
+        tenantCount,
+        suggestedAuthorityTenantId: exactBinding?.authority_tenant_id || app.metadata?.defaultAuthorityTenantId || '',
+        score,
+      }
+    })
+    .filter(app => app.score > 0)
+    .sort((a, b) => (b.score - a.score) || (b.tenantCount - a.tenantCount))
+
+  const applySuggestedApp = (app) => {
+    setMode('existing')
+    set('appRegistrationId', app.id)
+    set('authorityTenantId', app.suggestedAuthorityTenantId)
+    showToast(`Applied suggested app registration: ${app.display_name}`, 'success')
+  }
+
+  const useSuggestedAndCheck = async (app) => {
+    const errs = {}
+    if (!form.displayName.trim()) errs.displayName = 'Required'
+    if (!form.tenantId.match(guidRe)) errs.tenantId = 'Must be a valid GUID'
+    setErrors(prev => ({ ...prev, ...errs }))
+    if (Object.keys(errs).length) {
+      showToast('Enter display name and tenant ID first', 'error')
+      return
+    }
+
+    setMode('existing')
+    set('appRegistrationId', app.id)
+    set('authorityTenantId', app.suggestedAuthorityTenantId)
+
+    setChecking(true)
+    try {
+      const data = await tenantApi.checkPermissionsWithApp({
+        tenantId: form.tenantId,
+        appRegistrationId: app.id,
+        authorityTenantId: app.suggestedAuthorityTenantId || undefined,
+      })
+      setPermData(data)
+      setStep(2)
+    } catch (err) {
+      const msg = err.response?.data?.error || err.response?.data?.message || err.message || 'Validation failed'
+      showToast(msg, 'error')
+    } finally {
+      setChecking(false)
+    }
+  }
 
   // Step 1 → 2: validate form fields
   const goToCredentials = () => {
@@ -131,19 +266,32 @@ export default function AddTenant({ navigate, showToast, onAdd }) {
   const validateAndCheck = async () => {
     const errs = {}
     if (!form.displayName.trim())                     errs.displayName = 'Required'
-    if (!form.tenantId.match(/^[0-9a-f-]{36}$/i))    errs.tenantId    = 'Must be a valid GUID'
-    if (!form.clientId.match(/^[0-9a-f-]{36}$/i))    errs.clientId    = 'Must be a valid GUID'
-    if (!form.clientSecret.trim())                    errs.clientSecret = 'Required'
+    if (!form.tenantId.match(guidRe))                errs.tenantId    = 'Must be a valid GUID'
+    if (mode === 'new') {
+      if (!form.clientId.match(guidRe))              errs.clientId    = 'Must be a valid GUID'
+      if (!form.clientSecret.trim())                    errs.clientSecret = 'Required'
+    } else {
+      if (!form.appRegistrationId)                      errs.appRegistrationId = 'Select an app registration'
+      if (form.authorityTenantId && !form.authorityTenantId.match(guidRe)) {
+        errs.authorityTenantId = 'Must be a valid GUID'
+      }
+    }
     setErrors(errs)
     if (Object.keys(errs).length) return
 
     setChecking(true)
     try {
-      const data = await tenantApi.checkPermissions({
-        tenantId:     form.tenantId,
-        clientId:     form.clientId,
-        clientSecret: form.clientSecret,
-      })
+      const data = mode === 'new'
+        ? await tenantApi.checkPermissions({
+            tenantId:     form.tenantId,
+            clientId:     form.clientId,
+            clientSecret: form.clientSecret,
+          })
+        : await tenantApi.checkPermissionsWithApp({
+            tenantId: form.tenantId,
+            appRegistrationId: form.appRegistrationId,
+            authorityTenantId: form.authorityTenantId || undefined,
+          })
       setPermData(data)
       setStep(2)
     } catch (err) {
@@ -158,7 +306,19 @@ export default function AddTenant({ navigate, showToast, onAdd }) {
   const submit = async () => {
     setSubmitting(true)
     try {
-      const newTenant = await tenantApi.create(form)
+      const newTenant = mode === 'new'
+        ? await tenantApi.create({
+            displayName: form.displayName,
+            tenantId: form.tenantId,
+            clientId: form.clientId,
+            clientSecret: form.clientSecret,
+          })
+        : await tenantApi.createWithApp({
+            displayName: form.displayName,
+            tenantId: form.tenantId,
+            appRegistrationId: form.appRegistrationId,
+            authorityTenantId: form.authorityTenantId || undefined,
+          })
       showToast(`"${form.displayName}" registered!`, 'success')
       onAdd(newTenant)   // updates sidebar + selects this tenant, then navigates to /
     } catch (err) {
@@ -268,6 +428,21 @@ export default function AddTenant({ navigate, showToast, onAdd }) {
               ))}
             </div>
 
+            <div className="pt-2">
+              <h3 className="text-xs font-semibold text-gray-300 uppercase tracking-wider mb-2">Workload Permissions (Teams, SharePoint, Exchange)</h3>
+              <div className="grid grid-cols-1 gap-1.5">
+                {WORKLOAD_PERMISSIONS.map(({ p, purpose }) => (
+                  <div key={p} className="flex items-start gap-2.5 rounded-lg px-3 py-2.5 border bg-gray-900/60 border-gray-800">
+                    <div className="w-1.5 h-1.5 rounded-full mt-1 shrink-0 bg-brand-400"/>
+                    <div className="min-w-0">
+                      <code className="text-xs text-brand-300">{p}</code>
+                      {purpose && <p className="text-xs text-gray-500 mt-0.5">{purpose}</p>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             <div className="rounded-lg bg-gray-900/40 border border-gray-800 px-3 py-2.5 text-xs text-gray-500 space-y-1">
               <p>
                 All six permissions are recommended for full monitoring coverage.{' '}
@@ -295,11 +470,79 @@ export default function AddTenant({ navigate, showToast, onAdd }) {
             TrustM365 will authenticate and then check which permissions are granted, unlocking the relevant areas automatically.
           </p>
 
+          {suggestedApps.length > 0 && (
+            <div className="rounded-xl border border-brand-900/40 bg-brand-950/20 p-3 space-y-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-xs font-semibold text-brand-300 uppercase tracking-wider">Known Multi-Tenant App Suggestions</h3>
+                <span className="text-xs text-brand-200/80">{suggestedApps.length} available</span>
+              </div>
+              <p className="text-xs text-brand-100/80">
+                These app registrations have successful binding history and are likely reusable for this tenant.
+              </p>
+              <div className="space-y-2">
+                {suggestedApps.slice(0, 3).map(app => (
+                  <div key={app.id} className="rounded-lg border border-brand-900/40 bg-gray-900/40 p-2.5">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm text-white font-medium truncate">{app.display_name}</p>
+                        <p className="text-xs text-gray-500 font-mono truncate">{app.client_id}</p>
+                        <div className="flex flex-wrap gap-1.5 mt-1.5">
+                          {app.exactBinding && (
+                            <span className="text-[11px] px-1.5 py-0.5 rounded border border-green-900/60 bg-green-950/30 text-green-300">
+                              Previously bound to this tenant
+                            </span>
+                          )}
+                          <span className="text-[11px] px-1.5 py-0.5 rounded border border-gray-700 bg-gray-900 text-gray-300">
+                            Used by {app.tenantCount} tenant{app.tenantCount === 1 ? '' : 's'}
+                          </span>
+                          {app.tenantCount > 1 && (
+                            <span className="text-[11px] px-1.5 py-0.5 rounded border border-blue-900/60 bg-blue-950/30 text-blue-300">
+                              Multi-tenant proven
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex flex-col gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => applySuggestedApp(app)}
+                          className="text-xs px-2 py-1 rounded border border-gray-700 text-gray-300 hover:text-white hover:bg-gray-800 transition-colors">
+                          Use suggestion
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => useSuggestedAndCheck(app)}
+                          disabled={checking}
+                          className="text-xs px-2 py-1 rounded border border-brand-700/60 text-brand-300 hover:text-brand-200 hover:bg-brand-950/40 transition-colors disabled:opacity-60">
+                          Use and check
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <button
+              type="button"
+              onClick={() => setMode('new')}
+              className={`px-3 py-2 rounded border transition-colors ${mode === 'new' ? 'border-brand-600 bg-brand-950/30 text-brand-300' : 'border-gray-700 text-gray-400 hover:text-white hover:bg-gray-800'}`}>
+              New app credentials
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode('existing')}
+              className={`px-3 py-2 rounded border transition-colors ${mode === 'existing' ? 'border-brand-600 bg-brand-950/30 text-brand-300' : 'border-gray-700 text-gray-400 hover:text-white hover:bg-gray-800'}`}>
+              Reuse existing app registration
+            </button>
+          </div>
+
           <div className="space-y-3">
             {[
               { k: 'displayName', label: 'Display Name',              placeholder: 'e.g. Contoso Production', mono: false },
               { k: 'tenantId',    label: 'Directory (Tenant) ID',     placeholder: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx', mono: true },
-              { k: 'clientId',    label: 'Application (Client) ID',   placeholder: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx', mono: true },
             ].map(({ k, label, placeholder, mono }) => (
               <div key={k}>
                 <label className="block text-xs text-gray-400 mb-1">{label}</label>
@@ -313,26 +556,70 @@ export default function AddTenant({ navigate, showToast, onAdd }) {
               </div>
             ))}
 
-            <div>
-              <label className="block text-xs text-gray-400 mb-1">Client Secret Value</label>
-              <div className="relative">
+            {mode === 'new' && (
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Application (Client) ID</label>
                 <input
-                  className="input font-mono pr-10"
-                  type={showSecret ? 'text' : 'password'}
-                  placeholder="Paste secret value"
-                  value={form.clientSecret}
-                  onChange={e => set('clientSecret', e.target.value)}
+                  className="input font-mono"
+                  placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                  value={form.clientId}
+                  onChange={e => set('clientId', e.target.value)}
                 />
-                <button
-                  type="button"
-                  onClick={() => setShowSecret(s => !s)}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-600 hover:text-gray-300 transition-colors">
-                  {showSecret ? <EyeOff size={14} /> : <Eye size={14} />}
-                </button>
+                {errors.clientId && <p className="text-red-400 text-xs mt-1">{errors.clientId}</p>}
               </div>
-              {errors.clientSecret && <p className="text-red-400 text-xs mt-1">{errors.clientSecret}</p>}
-              <p className="text-xs text-gray-600 mt-1">Encrypted with AES-256-GCM at rest. Never logged or transmitted in plain text.</p>
-            </div>
+            )}
+
+            {mode === 'existing' && (
+              <>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Shared App Registration</label>
+                  <select
+                    className="input"
+                    value={form.appRegistrationId}
+                    onChange={e => set('appRegistrationId', e.target.value)}>
+                    <option value="">Select app registration…</option>
+                    {appRegistrations.map(app => (
+                      <option key={app.id} value={app.id}>{app.display_name} ({app.client_id})</option>
+                    ))}
+                  </select>
+                  {errors.appRegistrationId && <p className="text-red-400 text-xs mt-1">{errors.appRegistrationId}</p>}
+                </div>
+
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Authority Tenant ID (optional)</label>
+                  <input
+                    className="input font-mono"
+                    placeholder="Defaults to app default authority or this tenant"
+                    value={form.authorityTenantId}
+                    onChange={e => set('authorityTenantId', e.target.value)}
+                  />
+                  {errors.authorityTenantId && <p className="text-red-400 text-xs mt-1">{errors.authorityTenantId}</p>}
+                </div>
+              </>
+            )}
+
+            {mode === 'new' && (
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Client Secret Value</label>
+                <div className="relative">
+                  <input
+                    className="input font-mono pr-10"
+                    type={showSecret ? 'text' : 'password'}
+                    placeholder="Paste secret value"
+                    value={form.clientSecret}
+                    onChange={e => set('clientSecret', e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowSecret(s => !s)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-600 hover:text-gray-300 transition-colors">
+                    {showSecret ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                </div>
+                {errors.clientSecret && <p className="text-red-400 text-xs mt-1">{errors.clientSecret}</p>}
+                <p className="text-xs text-gray-600 mt-1">Encrypted with AES-256-GCM at rest. Never logged or transmitted in plain text.</p>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -444,7 +731,7 @@ export default function AddTenant({ navigate, showToast, onAdd }) {
 
         {step === 0 && (
           <button onClick={goToCredentials} className="btn-primary">
-            Next → Enter Credentials
+            Next → Connection Details
           </button>
         )}
 

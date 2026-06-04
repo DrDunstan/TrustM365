@@ -236,6 +236,16 @@ async function initDatabase() {
       tagline                 TEXT NOT NULL DEFAULT '',
       report_theme            TEXT NOT NULL DEFAULT 'dark',
       report_accent           TEXT NOT NULL DEFAULT '',
+      la_enabled              INTEGER NOT NULL DEFAULT 0,
+      la_workspace_id         TEXT NOT NULL DEFAULT '',
+      la_shared_key_encrypted TEXT NOT NULL DEFAULT '',
+      la_log_type_prefix      TEXT NOT NULL DEFAULT 'TrustM365',
+      la_schema_version       TEXT NOT NULL DEFAULT '1.0',
+      la_ingest_drift         INTEGER NOT NULL DEFAULT 1,
+      la_ingest_restore       INTEGER NOT NULL DEFAULT 1,
+      la_ingest_jobs          INTEGER NOT NULL DEFAULT 1,
+      la_ingest_webhooks      INTEGER NOT NULL DEFAULT 1,
+      la_ingest_api_logs      INTEGER NOT NULL DEFAULT 0,
       updated_at              TEXT NOT NULL DEFAULT (datetime('now'))
     );
     INSERT OR IGNORE INTO mssp_settings (id) VALUES ('singleton');
@@ -249,6 +259,9 @@ async function initDatabase() {
   }
   if (!tenantCols.includes('last_sync_error_at')) {
     db.exec("ALTER TABLE tenants ADD COLUMN last_sync_error_at TEXT");
+  }
+  if (!tenantCols.includes('app_registration_id')) {
+    db.exec("ALTER TABLE tenants ADD COLUMN app_registration_id TEXT");
   }
 
   const msspCols = db.prepare("PRAGMA table_info(mssp_settings)").all().map(c => c.name);  if (!msspCols.includes('baseline_label_template')) {
@@ -269,6 +282,36 @@ async function initDatabase() {
   if (!msspCols.includes('report_accent')) {
     db.exec("ALTER TABLE mssp_settings ADD COLUMN report_accent TEXT NOT NULL DEFAULT ''");
   }
+  if (!msspCols.includes('la_enabled')) {
+    db.exec("ALTER TABLE mssp_settings ADD COLUMN la_enabled INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!msspCols.includes('la_workspace_id')) {
+    db.exec("ALTER TABLE mssp_settings ADD COLUMN la_workspace_id TEXT NOT NULL DEFAULT ''");
+  }
+  if (!msspCols.includes('la_shared_key_encrypted')) {
+    db.exec("ALTER TABLE mssp_settings ADD COLUMN la_shared_key_encrypted TEXT NOT NULL DEFAULT ''");
+  }
+  if (!msspCols.includes('la_log_type_prefix')) {
+    db.exec("ALTER TABLE mssp_settings ADD COLUMN la_log_type_prefix TEXT NOT NULL DEFAULT 'TrustM365'");
+  }
+  if (!msspCols.includes('la_schema_version')) {
+    db.exec("ALTER TABLE mssp_settings ADD COLUMN la_schema_version TEXT NOT NULL DEFAULT '1.0'");
+  }
+  if (!msspCols.includes('la_ingest_drift')) {
+    db.exec("ALTER TABLE mssp_settings ADD COLUMN la_ingest_drift INTEGER NOT NULL DEFAULT 1");
+  }
+  if (!msspCols.includes('la_ingest_restore')) {
+    db.exec("ALTER TABLE mssp_settings ADD COLUMN la_ingest_restore INTEGER NOT NULL DEFAULT 1");
+  }
+  if (!msspCols.includes('la_ingest_jobs')) {
+    db.exec("ALTER TABLE mssp_settings ADD COLUMN la_ingest_jobs INTEGER NOT NULL DEFAULT 1");
+  }
+  if (!msspCols.includes('la_ingest_webhooks')) {
+    db.exec("ALTER TABLE mssp_settings ADD COLUMN la_ingest_webhooks INTEGER NOT NULL DEFAULT 1");
+  }
+  if (!msspCols.includes('la_ingest_api_logs')) {
+    db.exec("ALTER TABLE mssp_settings ADD COLUMN la_ingest_api_logs INTEGER NOT NULL DEFAULT 0");
+  }
   // Timezone column removed from MSSP settings (no longer used)
 
   // Rename resource area display names to remove redundant product prefix.
@@ -283,8 +326,36 @@ async function initDatabase() {
       .run(newName, areaKey);
   }
 
-  // Security check results for Maester-style policy checks (separate from tenant baselines)
+  // Security check results for Zero Trust policy checks (separate from tenant baselines)
   db.exec(`
+    CREATE TABLE IF NOT EXISTS app_registrations (
+      id                     TEXT PRIMARY KEY,
+      display_name           TEXT NOT NULL,
+      client_id              TEXT NOT NULL,
+      client_secret_encrypted TEXT NOT NULL,
+      auth_mode              TEXT NOT NULL DEFAULT 'client_secret',
+      metadata               TEXT NOT NULL DEFAULT '{}',
+      created_at             TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at             TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_app_reg_client_id ON app_registrations(client_id);
+
+    CREATE TABLE IF NOT EXISTS tenant_app_bindings (
+      id                     TEXT PRIMARY KEY,
+      tenant_id              TEXT NOT NULL,
+      app_registration_id    TEXT NOT NULL,
+      authority_tenant_id    TEXT NOT NULL,
+      is_primary             INTEGER NOT NULL DEFAULT 1,
+      permissions_json       TEXT NOT NULL DEFAULT '{}',
+      permissions_checked_at TEXT,
+      created_at             TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at             TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+      FOREIGN KEY (app_registration_id) REFERENCES app_registrations(id) ON DELETE CASCADE
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_tenant_app_binding_unique ON tenant_app_bindings(tenant_id, app_registration_id);
+    CREATE INDEX IF NOT EXISTS idx_tenant_app_binding_tenant ON tenant_app_bindings(tenant_id, is_primary);
+
     CREATE TABLE IF NOT EXISTS security_check_results (
       id           TEXT PRIMARY KEY,
       tenant_id    TEXT NOT NULL,
@@ -370,6 +441,22 @@ async function initDatabase() {
       FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
     );
   `);
+  // Tenant-scoped reference templates (persisted per-tenant)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS tenant_reference_templates (
+      id           TEXT PRIMARY KEY,
+      tenant_id    TEXT NOT NULL,
+      template_id  TEXT NOT NULL,
+      template_json TEXT NOT NULL,
+      uploaded_by  TEXT NOT NULL DEFAULT '',
+      metadata     TEXT NOT NULL DEFAULT '{}',
+      created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at   TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_tenant_ref_template_unique ON tenant_reference_templates(tenant_id, template_id);
+    CREATE INDEX IF NOT EXISTS idx_tenant_ref_template_tenant ON tenant_reference_templates(tenant_id);
+  `);
 
   // ── Backfill new collector areas into existing tenants ───────────────────────
   // INSERT OR IGNORE — idempotent, runs safely on every startup.
@@ -381,6 +468,19 @@ async function initDatabase() {
     ['intune_ep_firewall',        'Endpoint Security — Firewall',               'Windows Firewall policies — domain, private and public profile enabled state, inbound/outbound default actions'],
     ['intune_ep_disk_encryption', 'Endpoint Security — Disk Encryption',        'BitLocker policies — encryption enabled, method (AES-256/AES-128), recovery key escrow to Entra ID'],
     ['intune_ep_asr',             'Endpoint Security — Attack Surface Reduction', 'ASR rules — Office macro blocking, credential theft prevention, ransomware protection, controlled folder access'],
+    // Collaboration and content areas
+    ['sharepoint_sites',          'SharePoint Sites',                             'SharePoint site collections and basic sharing settings'],
+    ['sharepoint_tenant_settings','Tenant Security Settings',                     'SharePoint tenant-level security and sharing posture settings'],
+    ['teams_policies_messaging',  'Messaging Policies',                           'Teams messaging policies — tenant-level messaging controls (Giphy, memes, stickers, external images)'],
+    ['teams_policies_meetings',   'Meeting Policies',                             'Teams meeting & online meeting policies — recording, transcription, lobby settings'],
+    ['teams_membership',          'Team Membership',                              'Per-team membership and owner lists — members and owners for Teams'],
+    ['teams_app_permission_policies', 'App Permission Policies',                  'Teams app permission policies — monitor app allow/block policy posture'],
+    ['teams_channels_policies',      'Channels Policies',                         'Teams channels policies — private/shared channel governance posture'],
+    ['teams_org_app_settings',       'Org App Settings',                          'Teams organization app settings — sideloading and app request posture'],
+    ['exchange_mailboxes',        'Mailboxes',                                    'Mailbox-level monitoring posture snapshot (mailbox settings, forwarding indicators, and inbox-rule indicators). Restore is not available for this area.'],
+    ['exchange_mailbox_security', 'Mailbox Security Settings',                    'Mailbox security settings and forwarding indicators — mailbox settings can be restored; rules are monitored for drift'],
+    ['exchange_connectors',       'Mail Flow Connectors',                         'Mail flow connectors discovered through Graph beta-backed endpoints. Empty results indicate no Graph-accessible connectors for this tenant context.'],
+    ['exchange_transport_rules',  'Transport Rules',                              'Transport rules discovered through Graph beta-backed endpoints. Empty results indicate no Graph-accessible transport rules for this tenant context.'],
   ];
   {
     const existingTenants = db.prepare('SELECT id FROM tenants').all();
@@ -391,6 +491,70 @@ async function initDatabase() {
     for (const tenant of existingTenants) {
       for (const [areaKey, displayName, description] of NEW_COLLECTOR_AREAS) {
         insertArea.run(crypto.randomUUID(), tenant.id, areaKey, displayName, description);
+      }
+    }
+  }
+
+  // Normalize legacy Teams display names (remove redundant "Teams -"/"Teams —").
+  db.prepare(`
+    UPDATE resource_areas
+    SET display_name = CASE area_key
+      WHEN 'teams_policies_messaging' THEN 'Messaging Policies'
+      WHEN 'teams_policies_meetings' THEN 'Meeting Policies'
+      WHEN 'teams_membership' THEN 'Team Membership'
+      ELSE display_name
+    END
+    WHERE area_key IN ('teams_policies_messaging', 'teams_policies_meetings', 'teams_membership')
+      AND (
+        display_name LIKE 'Teams - %'
+        OR display_name LIKE 'Teams — %'
+        OR display_name IN ('Teams Membership', 'Teams - Membership', 'Teams — Membership')
+      )
+  `).run();
+
+  // Backfill shared app-registration linkage for legacy tenant rows.
+  {
+    const crypto = require('crypto');
+    const tenants = db.prepare('SELECT * FROM tenants').all();
+    const hasApp = db.prepare('SELECT id FROM app_registrations WHERE id = ?');
+    const insertApp = db.prepare(`
+      INSERT INTO app_registrations (id, display_name, client_id, client_secret_encrypted)
+      VALUES (?,?,?,?)
+    `);
+    const hasBindingByApp = db.prepare('SELECT id FROM tenant_app_bindings WHERE tenant_id = ? AND app_registration_id = ?');
+    const hasAnyBinding = db.prepare('SELECT id FROM tenant_app_bindings WHERE tenant_id = ? LIMIT 1');
+    const insertBinding = db.prepare(`
+      INSERT INTO tenant_app_bindings (id, tenant_id, app_registration_id, authority_tenant_id, is_primary)
+      VALUES (?,?,?,?,1)
+    `);
+    const setTenantApp = db.prepare('UPDATE tenants SET app_registration_id = ? WHERE id = ?');
+
+    for (const tenant of tenants) {
+      if (!tenant.client_id || !tenant.client_secret_encrypted) continue;
+
+      let appRegistrationId = tenant.app_registration_id;
+      if (!appRegistrationId) {
+        appRegistrationId = crypto.randomUUID();
+        insertApp.run(
+          appRegistrationId,
+          `${tenant.display_name || tenant.tenant_id} App Registration`,
+          tenant.client_id,
+          tenant.client_secret_encrypted
+        );
+        setTenantApp.run(appRegistrationId, tenant.id);
+      } else if (!hasApp.get(appRegistrationId)) {
+        insertApp.run(
+          appRegistrationId,
+          `${tenant.display_name || tenant.tenant_id} App Registration`,
+          tenant.client_id,
+          tenant.client_secret_encrypted
+        );
+      }
+
+      const hasBoundTarget = hasBindingByApp.get(tenant.id, appRegistrationId);
+      const hasBoundAny = hasAnyBinding.get(tenant.id);
+      if (!hasBoundTarget && !hasBoundAny) {
+        insertBinding.run(crypto.randomUUID(), tenant.id, appRegistrationId, tenant.tenant_id);
       }
     }
   }

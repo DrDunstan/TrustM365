@@ -1,0 +1,28 @@
+{
+  "device1": {
+    "id": "device1",
+    "displayName": "Device 1",
+    "settings": [
+      {
+        "settingDefinitionId": "device_vendor_msft_policy_config_defender_allowcloudprotection",
+        "name": "device_vendor_msft_policy_config_defender_allowcloudprotection_1",
+        "value": "device_vendor_msft_policy_config_defender_allowcloudprotection_1"
+      },
+      {
+        "settingDefinitionId": "device_vendor_msft_policy_config_defender_cloudblocklevel",
+        "name": "device_vendor_msft_policy_config_defender_cloudblocklevel_2",
+        "value": "device_vendor_msft_policy_config_defender_cloudblocklevel_2"
+      },
+      {
+        "settingDefinitionId": "device_vendor_msft_policy_config_defender_enablenetworkprotection",
+        "name": "device_vendor_msft_policy_config_defender_enablenetworkprotection_1",
+        "value": "device_vendor_msft_policy_config_defender_enablenetworkprotection_1"
+      },
+      {
+        "settingDefinitionId": "device_vendor_msft_policy_config_defender_puaprotection",
+        "name": "device_vendor_msft_policy_config_defender_puaprotection_1",
+        "value": "device_vendor_msft_policy_config_defender_puaprotection_1"
+      }
+    ]
+  }
+}

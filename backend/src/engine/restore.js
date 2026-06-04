@@ -1,10 +1,11 @@
 const { getDb } = require('../database/init');
 const { getAccessToken } = require('../services/auth');
-const { decrypt } = require('../utils/encryption');
+const { resolveTenantAuthContext } = require('../services/tenantAuth');
 const { getCollector } = require('../collectors');
 const { graphPatch, graphPost, graphGet } = require('../services/graph');
 const { v4: uuidv4 } = require('uuid');
 const logger = require('../utils/logger');
+const { emitSiemEvent } = require('../services/logAnalytics');
 
 function buildPatchForPath(path, value) {
   const keys = path.split('.');
@@ -45,8 +46,8 @@ async function restoreResource(tenantDbId, areaKey, resourceId, propertyPath = n
 
   const resourceName = baselineResource.displayName || resourceId;
 
-  const clientSecret = decrypt(tenant.client_secret_encrypted);
-  const token = await getAccessToken(tenant.tenant_id, tenant.client_id, clientSecret);
+  const authCtx = resolveTenantAuthContext(tenantDbId);
+  const token = await getAccessToken(authCtx.authorityTenantId, authCtx.clientId, authCtx.clientSecret);
 
   const collector = getCollector(areaKey);
   const logId = uuidv4();
@@ -158,6 +159,13 @@ async function restoreResource(tenantDbId, areaKey, resourceId, propertyPath = n
         JSON.stringify([{ path: propertyPath, baselineValue }])
       );
       logger.info({ areaKey, resourceId, propertyPath }, 'Property restored to baseline');
+      emitSiemEvent('restore', 'restore.property.succeeded', {
+        tenantDbId,
+        areaKey,
+        resourceId,
+        propertyPath,
+        restoreType: effectiveType,
+      });
       return {
         success: true,
         message: `"${propertyPath}" on "${resourceName}" restored to baseline value`
@@ -168,6 +176,14 @@ async function restoreResource(tenantDbId, areaKey, resourceId, propertyPath = n
           (id,tenant_id,area_key,resource_id,resource_name,property_path,restore_type,restored_by,success,error_message)
         VALUES (?,?,?,?,?,?,?,?,0,?)
       `).run(logId, tenantDbId, areaKey, resourceId, resourceName, propertyPath, effectiveType, 'manual', err.message);
+      emitSiemEvent('restore', 'restore.property.failed', {
+        tenantDbId,
+        areaKey,
+        resourceId,
+        propertyPath,
+        restoreType: effectiveType,
+        error: err.message,
+      });
       throw new Error(`Restore failed for property "${propertyPath}" on "${resourceName}": ${err.message}`);
     }
   } else {
@@ -215,6 +231,13 @@ async function restoreResource(tenantDbId, areaKey, resourceId, propertyPath = n
         JSON.stringify(restoredProps)
       );
       logger.info({ areaKey, resourceId, restoreType: effectiveRestoreType, isMissing }, 'Full resource restored to baseline');
+      emitSiemEvent('restore', 'restore.resource.succeeded', {
+        tenantDbId,
+        areaKey,
+        resourceId,
+        restoreType: effectiveRestoreType,
+        isMissing,
+      });
       return {
         success: true,
         message: isMissing
@@ -231,6 +254,14 @@ async function restoreResource(tenantDbId, areaKey, resourceId, propertyPath = n
         effectiveRestoreType, effectiveRestoreType === 'auto' ? 'auto' : 'manual',
         err.message
       );
+      emitSiemEvent('restore', 'restore.resource.failed', {
+        tenantDbId,
+        areaKey,
+        resourceId,
+        restoreType: effectiveRestoreType,
+        isMissing,
+        error: err.message,
+      });
       throw new Error(`Restore failed for "${resourceName}": ${err.message}`);
     }
   }

@@ -2,6 +2,10 @@
 
 TrustM365 can generate reports automatically on a weekly or monthly cadence, storing them in the Reports list with an unread indicator.
 
+![Report generation and scheduling context](./visuals/guide-report-modal.png)
+
+_Visual reference: report flow entry point and modal context for scheduling/report operations._
+
 ---
 
 ## Configuring a schedule

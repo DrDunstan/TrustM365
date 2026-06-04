@@ -30,14 +30,37 @@ function fmtTs(iso) {
     return iso;
   }
 }
-  function fmtTs(iso) {
-    if (!iso) return '\u0014';
-    try {
-      return new Date(iso).toLocaleString('en-AU', { dateStyle: 'medium', timeStyle: 'short' });
-    } catch {
-      return iso;
-    }
-  }
+
+// Section builder for docx children arrays
+function docSection(title, contents = [], note = '', commentaryLabel = 'MSSP Commentary', clr) {
+  const out = [];
+  out.push(heading2(title, clr));
+  if (Array.isArray(contents)) out.push(...contents);
+  else if (contents) out.push(contents);
+  if (note) out.push(...commentaryBox(commentaryLabel, note, clr));
+  return out;
+}
+
+// Convert a simple sections descriptor into a `docx` Document instance
+function docOptions(sections = [], clr) {
+  return new Document({
+    sections: sections.map(s => ({
+      properties: s.properties || {},
+      footers: s.footers || {},
+      children: s.children || [],
+    })),
+  });
+}
+
+function makeFooter(companyName, tagline, clr) {
+  const text = tagline ? `${companyName} · ${tagline}` : companyName;
+  return new Footer({
+    children: [new Paragraph({
+      children: [new TextRun({ text, color: clr.muted, size: 18 })],
+      alignment: AlignmentType.CENTER,
+    })],
+  });
+}
 
 // ── Light-mode colour palette (hex without #) ─────────────────────────────────
 // All dark backgrounds removed — this is a print/PDF-friendly document.
@@ -184,6 +207,79 @@ function dataTable(headers, rows, clr, emptyMsg = 'No records in this period.') 
   const dataRows = rows.map((row, ri) => new TableRow({
     children: row.map((cell, ci) => {
       const bg = ri % 2 === 1 ? clr.rowAlt : clr.pageBg;
+
+      // Support raw objects/arrays as well as JSON strings. Objects will be
+      // pretty-printed as multiline JSON paragraphs; strings that parse as JSON
+      // will also be pretty-printed. Scalars are shown as a single paragraph.
+      let cellParagraphs;
+      if (cell === null || cell === undefined) {
+        cellParagraphs = [new Paragraph({ children: [new TextRun({ text: '—', color: clr.body, size: 20 })] })];
+      } else if (typeof cell === 'object') {
+        // Special case: combined { baseline, live } object from drift rows
+        if (cell && (cell.baseline !== undefined || cell.live !== undefined)) {
+          const parts = [];
+          parts.push(new Paragraph({ children: [new TextRun({ text: 'Baseline:', bold: true, color: clr.muted, size: 18 })], spacing: { before: 0, after: 0 } }));
+          if (Array.isArray(cell.baseline)) {
+            const bl = cell.baseline;
+            const peopleLike = bl.every(it => it && typeof it === 'object' && (it.displayName || it.userPrincipalName || it.id));
+            if (peopleLike) {
+              for (const it of bl) parts.push(new Paragraph({ children: [new TextRun({ text: '• ' + (it.displayName || it.userPrincipalName || it.id), color: clr.body, size: 18 })], spacing: { before: 0, after: 0 } }));
+            } else {
+              const pretty = JSON.stringify(bl, null, 2);
+              for (const line of pretty.split('\n')) parts.push(new Paragraph({ children: [new TextRun({ text: line, font: 'Consolas', color: clr.body, size: 18 })], spacing: { before: 0, after: 0 } }));
+            }
+          } else if (cell.baseline && typeof cell.baseline === 'object') {
+            const pretty = JSON.stringify(cell.baseline, null, 2);
+            for (const line of pretty.split('\n')) parts.push(new Paragraph({ children: [new TextRun({ text: line, font: 'Consolas', color: clr.body, size: 18 })], spacing: { before: 0, after: 0 } }));
+          } else {
+            parts.push(new Paragraph({ children: [new TextRun({ text: esc(String(cell.baseline ?? '—')), color: clr.body, size: 20 })], spacing: { before: 0, after: 0 } }));
+          }
+
+          parts.push(new Paragraph({ children: [new TextRun({ text: 'Live:', bold: true, color: clr.muted, size: 18 })], spacing: { before: 6, after: 0 } }));
+          if (Array.isArray(cell.live)) {
+            const lv = cell.live;
+            const peopleLike = lv.every(it => it && typeof it === 'object' && (it.displayName || it.userPrincipalName || it.id));
+            if (peopleLike) {
+              for (const it of lv) parts.push(new Paragraph({ children: [new TextRun({ text: '• ' + (it.displayName || it.userPrincipalName || it.id), color: clr.body, size: 18 })], spacing: { before: 0, after: 0 } }));
+            } else {
+              const pretty = JSON.stringify(lv, null, 2);
+              for (const line of pretty.split('\n')) parts.push(new Paragraph({ children: [new TextRun({ text: line, font: 'Consolas', color: clr.body, size: 18 })], spacing: { before: 0, after: 0 } }));
+            }
+          } else if (cell.live && typeof cell.live === 'object') {
+            const pretty = JSON.stringify(cell.live, null, 2);
+            for (const line of pretty.split('\n')) parts.push(new Paragraph({ children: [new TextRun({ text: line, font: 'Consolas', color: clr.body, size: 18 })], spacing: { before: 0, after: 0 } }));
+          } else {
+            parts.push(new Paragraph({ children: [new TextRun({ text: esc(String(cell.live ?? '—')), color: clr.body, size: 20 })], spacing: { before: 0, after: 0 } }));
+          }
+
+          cellParagraphs = parts;
+        } else if (cell.displayName || cell.userPrincipalName || cell.id) {
+          // Single person object
+          const text = cell.displayName ? `${cell.displayName}${cell.userPrincipalName ? ` (${cell.userPrincipalName})` : ''}` : (cell.userPrincipalName || cell.id || '');
+          cellParagraphs = [new Paragraph({ children: [new TextRun({ text: text, color: clr.body, size: 20 })] })];
+        } else {
+          const pretty = JSON.stringify(cell, null, 2);
+          cellParagraphs = pretty.split('\n').map(line => new Paragraph({ children: [new TextRun({ text: line, font: 'Consolas', color: clr.body, size: 18 })], spacing: { before: 0, after: 0 } }));
+        }
+      } else {
+        const raw = String(cell);
+        const trimmed = raw.trim();
+        if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+          try {
+            const parsed = JSON.parse(raw);
+            const pretty = JSON.stringify(parsed, null, 2);
+            cellParagraphs = pretty.split('\n').map(line => new Paragraph({
+              children: [new TextRun({ text: line, font: 'Consolas', color: clr.body, size: 18 })],
+              spacing: { before: 0, after: 0 },
+            }));
+          } catch (e) {
+            cellParagraphs = [new Paragraph({ children: [new TextRun({ text: esc(raw), color: clr.body, size: 20 })] })];
+          }
+        } else {
+          cellParagraphs = [new Paragraph({ children: [new TextRun({ text: esc(raw), color: clr.body, size: 20 })] })];
+        }
+      }
+
       return new TableCell({
         width: { size: colWidths[ci], type: WidthType.DXA },
         shading: { type: ShadingType.SOLID, color: bg, fill: bg },
@@ -192,9 +288,7 @@ function dataTable(headers, rows, clr, emptyMsg = 'No records in this period.') 
                    left:   { color: clr.border, size: 4, style: BorderStyle.SINGLE, space: 0 },
                    right:  { color: clr.border, size: 4, style: BorderStyle.SINGLE, space: 0 } },
         margins: { top: 60, bottom: 60, left: 100, right: 100 },
-        children: [new Paragraph({
-          children: [new TextRun({ text: esc(cell), color: clr.body, size: 20 })],
-        })],
+        children: cellParagraphs,
       });
     }),
   }));
@@ -208,48 +302,6 @@ function dataTable(headers, rows, clr, emptyMsg = 'No records in this period.') 
   ];
 }
 
-// ── Section assembler ─────────────────────────────────────────────────────────
-
-function docSection(title, children, note, commentaryLabel, clr) {
-  return [
-    heading2(title, clr),
-    ...children,
-    ...(note?.trim() ? commentaryBox(commentaryLabel, note, clr) : []),
-  ];
-}
-
-// ── Shared footer ─────────────────────────────────────────────────────────────
-
-function makeFooter(companyName, tagline, clr) {
-  const text = [companyName, tagline].filter(Boolean).join(' · ') + ' — TrustM365';
-  return new Footer({
-    children: [new Paragraph({
-      alignment: AlignmentType.CENTER,
-      children: [new TextRun({ text, color: clr.muted, size: 16 })],
-    })],
-  });
-}
-
-// ── Shared document options ───────────────────────────────────────────────────
-
-function docOptions(sections, clr) {
-  return new Document({
-    background: { color: clr.pageBg },
-    styles: {
-      default: {
-        document: {
-          run: { font: 'Calibri', color: clr.body, size: 22 },
-          paragraph: { spacing: { line: 276 } },
-        },
-        heading1: { run: { font: 'Calibri', color: clr.dark, bold: true } },
-        heading2: { run: { font: 'Calibri', color: clr.accent, bold: true } },
-        heading3: { run: { font: 'Calibri', color: clr.muted, bold: true } },
-      },
-    },
-    sections,
-  });
-}
-
 // ── Tenant report ─────────────────────────────────────────────────────────────
 
 async function renderTenantReportDocx(data, mssp = {}) {
@@ -259,6 +311,50 @@ async function renderTenantReportDocx(data, mssp = {}) {
   const tagline         = mssp.tagline     || '';
   const commentaryLabel = companyName !== 'TrustM365' ? `${companyName} Commentary` : 'MSSP Commentary';
   const clr             = buildCLR(mssp.reportAccent);
+
+  // Accept both legacy and current assembler payload shapes.
+  const remediationItems = remediationLog.items || remediationLog.actions || [];
+  const remSucceeded = remediationLog.succeeded ?? remediationItems.filter(a => a.success === true || a.status === 'ok').length;
+  const remFailed = remediationLog.failed ?? remediationItems.filter(a => a.success === false || a.status === 'failed').length;
+  const remAuto = remediationLog.auto ?? remediationLog.autoRestored ?? remediationItems.filter(a => a.trigger === 'Auto-restore').length;
+
+  const baselineAreas = Array.isArray(baselineCoverage)
+    ? baselineCoverage
+    : (baselineCoverage.areas || []);
+  const baselineTotal = baselineCoverage.totalAreas ?? baselineAreas.length;
+  const baselineMonitored = baselineCoverage.monitored ?? baselineAreas.filter(a => a.hasBaseline).length;
+  const baselineClean = baselineCoverage.clean ?? baselineAreas.filter(a => (a.currentStatus || a.driftStatus) === 'clean').length;
+  const baselineDrifted = baselineCoverage.drifted ?? baselineAreas.filter(a => (a.currentStatus || a.driftStatus) === 'drifted').length;
+  const baselineNoBaseline = baselineCoverage.noBaseline ?? (baselineTotal - baselineMonitored);
+
+  const COVERAGE_GROUPS = [
+    {
+      label: 'Microsoft Entra ID',
+      keys: ['entra_roles', 'entra_users', 'entra_groups', 'entra_apps', 'entra_auth_policies', 'entra_ca'],
+    },
+    {
+      label: 'Exchange Online',
+      keys: ['exchange_mailboxes', 'exchange_connectors', 'exchange_transport_rules', 'exchange_mailbox_security'],
+    },
+    {
+      label: 'Microsoft Intune - Policy Management',
+      keys: ['intune_compliance', 'intune_config_profiles', 'intune_update_rings', 'intune_mtd_connectors', 'intune_app_protection'],
+    },
+    {
+      label: 'Microsoft Intune - Endpoint Security',
+      keys: ['intune_ep_antivirus', 'intune_ep_firewall', 'intune_ep_disk_encryption', 'intune_ep_asr'],
+    },
+    {
+      label: 'SharePoint',
+      keys: ['sharepoint_sites', 'sharepoint_tenant_settings'],
+    },
+    {
+      label: 'Microsoft Teams',
+      keys: ['teams_membership', 'teams_policies_meetings', 'teams_policies_messaging', 'teams_app_permission_policies', 'teams_channels_policies', 'teams_org_app_settings'],
+    },
+  ];
+  const groupByArea = new Map();
+  COVERAGE_GROUPS.forEach(g => g.keys.forEach(k => groupByArea.set(k, g.label)));
 
   // ── Cover page ────────────────────────────────────────────────────────────
   const coverParagraphs = [
@@ -313,30 +409,35 @@ async function renderTenantReportDocx(data, mssp = {}) {
           ev.areaName,
           ev.resourceName || '—',
           p.label || p.path,
-          esc(p.baselineValue),
-          esc(p.liveValue),
+          // pass raw values (may be objects/arrays) — dataTable will pretty-print
+          p.baselineValue,
+          p.liveValue,
           fmtTs(ev.checkedAt),
         ])
   );
 
   // ── Remediation rows ──────────────────────────────────────────────────────
-  const remRows = (remediationLog.actions || []).map(a => [
+  const remRows = remediationItems.map(a => [
     a.areaName     || '—',
     a.resourceName || '—',
     a.propertyLabel || a.propertyPath || 'Full resource',
     a.trigger      || '—',
-    a.status === 'ok' ? '✓ OK' : '✗ Failed',
+    (a.success === true || a.status === 'ok') ? '✓ OK' : '✗ Failed',
     fmtTs(a.restoredAt),
   ]);
 
   // ── Coverage rows ─────────────────────────────────────────────────────────
-  const coverageRows = (baselineCoverage.areas || []).map(a => [
-    a.group || '—',
-    a.displayName,
-    a.hasBaseline ? 'Monitored' : 'No Baseline',
-    a.hasBaseline ? (a.driftStatus === 'clean' ? 'Clean' : a.driftStatus === 'drifted' ? 'Drifted' : '—') : '—',
-    a.lastChecked ? fmtTs(a.lastChecked) : '—',
-  ]);
+  const coverageRows = baselineAreas.map(a => {
+    const areaKey = a.areaKey || a.key;
+    const status = a.currentStatus || a.driftStatus;
+    return [
+      groupByArea.get(areaKey) || 'Additional Areas',
+      a.areaName || a.displayName || areaKey || '—',
+      a.hasBaseline ? 'Monitored' : 'No baseline set',
+      a.hasBaseline ? (status === 'clean' ? 'Clean' : status === 'drifted' ? 'Drifted' : 'No data') : 'No data',
+      a.lastChecked ? fmtTs(a.lastChecked) : '—',
+    ];
+  });
 
   // ── Current Config State ──────────────────────────────────────────────────
   const cs     = configState || {};
@@ -373,15 +474,16 @@ async function renderTenantReportDocx(data, mssp = {}) {
       : ev.properties.map(p => [
           ev.areaName, ev.resourceName || '—',
           p.label || p.path,
-          `${esc(p.baselineValue)} → ${esc(p.liveValue)}`,
+          // combine baseline+live into a single object so docx cell shows both pretty-printed
+          { baseline: p.baselineValue, live: p.liveValue },
           fmtTs(ev.checkedAt),
         ])
   );
-  const allRemRows = (remediationLog.allActions || remediationLog.actions || []).map(a => [
+  const allRemRows = (remediationLog.allActions || remediationItems).map(a => [
     a.areaName || '—', a.resourceName || '—',
     a.propertyLabel || 'Full',
     a.trigger  || '—',
-    a.status === 'ok' ? '✓ OK' : '✗ Failed',
+    (a.success === true || a.status === 'ok') ? '✓ OK' : '✗ Failed',
     fmtTs(a.restoredAt),
   ]);
 
@@ -407,10 +509,10 @@ async function renderTenantReportDocx(data, mssp = {}) {
 
     ...docSection('Remediation Log', [
       statRow([
-        { label: 'Total',         value: remediationLog.total        || 0, color: clr.accent },
-        { label: 'Succeeded',     value: remediationLog.succeeded    || 0, color: clr.green },
-        { label: 'Failed',        value: remediationLog.failed       || 0, color: (remediationLog.failed || 0) > 0 ? clr.red : clr.muted },
-        { label: 'Auto-restored', value: remediationLog.autoRestored || 0, color: clr.accent },
+        { label: 'Total',         value: remSucceeded + remFailed, color: clr.accent },
+        { label: 'Succeeded',     value: remSucceeded, color: clr.green },
+        { label: 'Failed',        value: remFailed, color: remFailed > 0 ? clr.red : clr.muted },
+        { label: 'Auto-restored', value: remAuto, color: clr.accent },
       ], clr),
       ...dataTable(
         ['Area', 'Resource', 'Property', 'Trigger', 'Result', 'Timestamp'],
@@ -423,11 +525,11 @@ async function renderTenantReportDocx(data, mssp = {}) {
 
     ...docSection('Baseline Coverage', [
       statRow([
-        { label: 'Total Areas',  value: baselineCoverage.totalAreas || 0, color: clr.accent },
-        { label: 'Monitored',    value: baselineCoverage.monitored  || 0, color: clr.accent },
-        { label: 'Clean',        value: baselineCoverage.clean      || 0, color: clr.green },
-        { label: 'Drifted',      value: baselineCoverage.drifted    || 0, color: clr.red },
-        { label: 'No Baseline',  value: baselineCoverage.noBaseline || 0, color: clr.muted },
+        { label: 'Total Areas',  value: baselineTotal, color: clr.accent },
+        { label: 'Monitored',    value: baselineMonitored, color: clr.accent },
+        { label: 'Clean',        value: baselineClean, color: clr.green },
+        { label: 'Drifted',      value: baselineDrifted, color: clr.red },
+        { label: 'No Baseline',  value: baselineNoBaseline, color: clr.muted },
       ], clr),
       ...dataTable(
         ['Group', 'Area', 'Monitoring', 'Status', 'Last Checked'],
@@ -644,6 +746,69 @@ async function renderBaselineExportDocx(data, mssp = {}) {
               res.fullConfig.map(fc => [fc.key, fc.value]),
               clr
             ));
+          }
+
+          // Exchange mailbox summary
+          if (res.mailboxSettings || (Array.isArray(res.forwardingRules) && res.forwardingRules.length > 0) || (Array.isArray(res.messageRules) && res.messageRules.length > 0) || res.inferenceClassification) {
+            areaNodes.push(heading3('Mailbox Summary', clr));
+            areaNodes.push(kv('Time zone', res.mailboxSettings?.timeZone ?? '—', clr));
+            if (res.mailboxSettings?.automaticRepliesSetting) {
+              const ars = res.mailboxSettings.automaticRepliesSetting;
+              const arsText = `${ars.status ?? '—'}${ars.externalAudience ? ' · ' + ars.externalAudience : ''}`;
+              areaNodes.push(kv('Automatic replies', arsText, clr));
+            }
+
+            if (Array.isArray(res.forwardingRules) && res.forwardingRules.length > 0) {
+              areaNodes.push(heading3('Forwarding Rules', clr));
+              areaNodes.push(...dataTable(
+                ['Rule', 'Details'],
+                res.forwardingRules.map(fr => [fr.displayName || fr.id || JSON.stringify(fr), fr]),
+                clr
+              ));
+            }
+
+            if (Array.isArray(res.messageRules) && res.messageRules.length > 0) {
+              areaNodes.push(heading3('Inbox Message Rules', clr));
+              areaNodes.push(...dataTable(
+                ['Name', 'Details'],
+                res.messageRules.map(mr => [mr.displayName || mr.id || JSON.stringify(mr), mr]),
+                clr
+              ));
+            }
+
+            if (res.inferenceClassification) {
+              areaNodes.push(heading3('Inference Classification', clr));
+              areaNodes.push(...dataTable(
+                ['Field', 'Value'],
+                Object.keys(res.inferenceClassification).map(k => [k, res.inferenceClassification[k]]),
+                clr
+              ));
+            }
+          }
+
+          // SharePoint external-sharing signals
+          if (res.externalShareCount || res.anonymousLinkCount || (Array.isArray(res.topExternallyShared) && res.topExternallyShared.length > 0) || (Array.isArray(res.externalShareSamples) && res.externalShareSamples.length > 0)) {
+            areaNodes.push(heading3('External Sharing', clr));
+            areaNodes.push(kv('External shares', res.externalShareCount ?? '0', clr));
+            areaNodes.push(kv('Anonymous links', res.anonymousLinkCount ?? '0', clr));
+
+            if (Array.isArray(res.externalShareSamples) && res.externalShareSamples.length > 0) {
+              areaNodes.push(heading3('External Share Samples', clr));
+              areaNodes.push(...dataTable(
+                ['Item', 'Details'],
+                res.externalShareSamples.map(s => [s.webUrl || s.displayName || JSON.stringify(s), s]),
+                clr
+              ));
+            }
+
+            if (Array.isArray(res.topExternallyShared) && res.topExternallyShared.length > 0) {
+              areaNodes.push(heading3('Top Externally Shared Items', clr));
+              areaNodes.push(...dataTable(
+                ['Item', 'Roles', 'Site'],
+                res.topExternallyShared.map(it => [it.webUrl || it.displayName || JSON.stringify(it), (it.roles || []).join(', '), it.siteName || '']),
+                clr
+              ));
+            }
           }
         }
       }

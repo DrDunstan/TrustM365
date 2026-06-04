@@ -2,6 +2,10 @@
 
 Navigate to **Reports** in the sidebar, or click **Report** on any tenant dashboard.
 
+![Reports page](./visuals/guide-reports.png)
+
+_Visual reference: reports landing page with **Generate Report** and **Baseline Export** actions._
+
 TrustM365 generates **tenant-level reports** covering a single tenant over a defined date range. Reports are always rendered in light mode — clean, professional, and suitable for printing, PDF, and formal client delivery.
 
 ---

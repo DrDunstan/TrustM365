@@ -2,6 +2,10 @@
 
 TrustM365 has contextual filter controls on each main page. All filters are local to their page and designed to help you navigate large amounts of data quickly.
 
+![Area View search and status filters](./visuals/guide-area-view.png)
+
+_Visual reference: search box and status filtering controls in an Area View._
+
 ---
 
 ## Portfolio — tenant search and filters

@@ -1,0 +1,15 @@
+[
+  {
+    "refId": "oib:win-oib-es-windows-laps-d-laps-configuration-24h2-v3-6:settings",
+    "refDisplayName": "Win - OIB - ES - Windows LAPS - D - LAPS Configuration (24H2+) - v3.6 settings",
+    "status": "noMatch",
+    "matchAll": [],
+    "perKeyMatches": {
+      "settings.deviceVendorMsftLapsPoliciesBackupdirectory1": []
+    },
+    "matchedCount": 0,
+    "matchedSamples": [],
+    "presentInPolicies": [],
+    "detail": "Setting not present in any live resource"
+  }
+]

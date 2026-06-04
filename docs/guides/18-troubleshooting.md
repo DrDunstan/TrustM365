@@ -2,6 +2,10 @@
 
 This guide covers the most common problems encountered when running TrustM365, with their causes and fixes.
 
+![TrustM365 home and navigation overview](./visuals/guide-home-overview.png)
+
+_Visual reference: primary navigation and tenant/area entry points used during troubleshooting._
+
 ---
 
 ## Authentication and permissions
@@ -228,7 +232,7 @@ The lock clears automatically on the next sync once consent propagates.
 
 **Cause:** The frontend has not been built. Azure App Service serves the React app via Express's static middleware in production — `frontend/dist/` must exist.
 
-**Fix:** Run `npm run build` from the repo root (or let the GitHub Actions workflow do it). This compiles the React app into `frontend/dist/`. Redeploy after building.
+**Fix:** Run `npm run build` from the repo root. This compiles the React app into `frontend/dist/`. Redeploy after building.
 
 ---
 
@@ -236,7 +240,7 @@ The lock clears automatically on the next sync once consent propagates.
 
 **Cause:** The startup command is not set correctly, or the app is starting from the wrong working directory.
 
-**Fix:** In the Azure Portal, go to **App Service → Configuration → General settings** and set **Startup Command** to `node backend/src/index.js`. Alternatively, use the GitHub Actions workflow which sets this automatically via `az webapp config set`.
+**Fix:** In the Azure Portal, go to **App Service → Configuration → General settings** and set **Startup Command** to `cd backend && npm install && node src/index.js`.
 
 ---
 

@@ -43,6 +43,20 @@ const AREA_COLS = [
   { key: 'intune_ep_firewall',        label: 'FW',       group: 'intune', subGroup: 'ep_sec',   tooltip: 'Endpoint Security — Firewall' },
   { key: 'intune_ep_disk_encryption', label: 'BitLkr',   group: 'intune', subGroup: 'ep_sec',   tooltip: 'Endpoint Security — Disk Encryption (BitLocker)' },
   { key: 'intune_ep_asr',             label: 'ASR',      group: 'intune', subGroup: 'ep_sec',   tooltip: 'Endpoint Security — Attack Surface Reduction' },
+  // ── Microsoft Exchange Online ───────────────────────────────────────────
+  { key: 'exchange_mailboxes',        label: 'Mailboxes',       group: 'exchange', subGroup: 'exchange', tooltip: 'Exchange Mailboxes' },
+  { key: 'exchange_mailbox_security', label: 'Mailbox Sec.',    group: 'exchange', subGroup: 'exchange', tooltip: 'Exchange Mailbox Security Settings' },
+  { key: 'exchange_connectors',       label: 'Connectors',      group: 'exchange', subGroup: 'exchange', tooltip: 'Mail Flow Connectors' },
+  { key: 'exchange_transport_rules',  label: 'Transport',       group: 'exchange', subGroup: 'exchange', tooltip: 'Transport Rules' },
+  // ── SharePoint & Teams (separate sub-groups) ───────────────────────────
+  { key: 'sharepoint_sites',          label: 'Sites',      group: 'sharepoint', subGroup: 'sharepoint', tooltip: 'SharePoint Sites' },
+  { key: 'sharepoint_tenant_settings',label: 'Tenant Sec.',group: 'sharepoint', subGroup: 'sharepoint', tooltip: 'SharePoint Tenant Security Settings' },
+  { key: 'teams_policies_messaging',  label: 'Msg Pol.',   group: 'teams', subGroup: 'teams', tooltip: 'Teams Messaging Policies' },
+  { key: 'teams_policies_meetings',   label: 'Meet',       group: 'teams', subGroup: 'teams', tooltip: 'Teams Meeting Policies' },
+  { key: 'teams_membership',          label: 'Members',    group: 'teams', subGroup: 'teams', tooltip: 'Team Membership' },
+  { key: 'teams_app_permission_policies', label: 'App Perm', group: 'teams', subGroup: 'teams', tooltip: 'Teams App Permission Policies' },
+  { key: 'teams_channels_policies',   label: 'Channels',   group: 'teams', subGroup: 'teams', tooltip: 'Teams Channels Policies' },
+  { key: 'teams_org_app_settings',    label: 'Org Apps',   group: 'teams', subGroup: 'teams', tooltip: 'Teams Org App Settings' },
 ]
 
 // Sub-group metadata: label and left-border marker for Matrix separators
@@ -50,6 +64,10 @@ const SUB_GROUP_META = {
   entra:     { label: 'Entra ID',          firstKey: 'entra_roles' },
   policy:    { label: 'Policies',          firstKey: 'intune_compliance' },
   ep_sec:    { label: 'Endpoint Security', firstKey: 'intune_ep_antivirus' },
+  exchange:  { label: 'Exchange Online',   firstKey: 'exchange_mailboxes' },
+  collab:    { label: 'Collaboration', firstKey: 'sharepoint_sites' },
+  sharepoint:{ label: 'SharePoint',        firstKey: 'sharepoint_sites' },
+  teams:     { label: 'Teams',             firstKey: 'teams_policies_messaging' },
 }
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
@@ -250,64 +268,141 @@ function ScorecardView({ tenants, goToTenant, showToast }) {
               </button>
             </div>
 
-            {/* Area pills — grouped by product and sub-group */}
-            <div className="mt-3 space-y-2">
-              {/* Entra ID group */}
-              <div>
-                <div className="text-xs text-brand-500/70 font-medium mb-1 uppercase tracking-wide">Entra ID</div>
-                <div className="flex flex-wrap gap-1">
-                  {AREA_COLS.filter(c => c.group === 'entra').map(col => {
-                    const area = tenant.areas?.find(a => a.areaKey === col.key)
-                    const s  = area?.drift?.status
-                    const dc = area?.drift?.drift_count || 0
-                    const nb = area && !area.hasBaseline
-                    const isClean   = s === 'clean' || (s === 'drifted' && dc === 0)
-                    const isDrifted = s === 'drifted' && dc > 0
-                    return (
-                      <span key={col.key} title={col.tooltip}
-                        className={`text-xs px-2 py-0.5 rounded border font-medium cursor-default
-                          ${isClean   ? 'bg-green-950/30 border-green-900/50 text-green-400'
-                          : isDrifted ? 'bg-red-950/30 border-red-900/50 text-red-400'
-                          : nb        ? 'bg-yellow-950/20 border-yellow-900/30 text-yellow-600'
-                          : 'bg-gray-800/40 border-gray-700/40 text-gray-600'}`}>
-                        {col.label}{isDrifted && ` · ${dc}`}
-                      </span>
-                    )
-                  })}
+            {/* Area pills — grouped into left/right columns for better layout */}
+            <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Left column: Entra ID + Intune (Policies + Endpoint Security) */}
+              <div className="space-y-2">
+                <div>
+                  <div className="text-xs text-brand-500/70 font-medium mb-1 uppercase tracking-wide">Entra ID</div>
+                  <div className="flex flex-wrap gap-1">
+                    {AREA_COLS.filter(c => c.group === 'entra').map(col => {
+                      const area = tenant.areas?.find(a => a.areaKey === col.key)
+                      const s  = area?.drift?.status
+                      const dc = area?.drift?.drift_count || 0
+                      const nb = area && !area.hasBaseline
+                      const isClean   = s === 'clean' || (s === 'drifted' && dc === 0)
+                      const isDrifted = s === 'drifted' && dc > 0
+                      return (
+                        <span key={col.key} title={col.tooltip}
+                          className={`text-xs px-2 py-0.5 rounded border font-medium cursor-default
+                            ${isClean   ? 'bg-green-950/30 border-green-900/50 text-green-400'
+                            : isDrifted ? 'bg-red-950/30 border-red-900/50 text-red-400'
+                            : nb        ? 'bg-yellow-950/20 border-yellow-900/30 text-yellow-600'
+                            : 'bg-gray-800/40 border-gray-700/40 text-gray-600'}`}>
+                          {col.label}{isDrifted && ` · ${dc}`}
+                        </span>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {[
+                  { sg: 'policy',    label: 'Intune Policies' },
+                  { sg: 'ep_sec',    label: 'Endpoint Security' },
+                ].map(({ sg, label }) => {
+                  const cols = AREA_COLS.filter(c => c.subGroup === sg)
+                  return (
+                    <div key={sg}>
+                      <div className="text-xs text-green-600/70 font-medium mb-1 uppercase tracking-wide">{label}</div>
+                      <div className="flex flex-wrap gap-1">
+                        {cols.map(col => {
+                          const area = tenant.areas?.find(a => a.areaKey === col.key)
+                          const s  = area?.drift?.status
+                          const dc = area?.drift?.drift_count || 0
+                          const nb = area && !area.hasBaseline
+                          const isClean   = s === 'clean' || (s === 'drifted' && dc === 0)
+                          const isDrifted = s === 'drifted' && dc > 0
+                          return (
+                            <span key={col.key} title={col.tooltip}
+                              className={`text-xs px-2 py-0.5 rounded border font-medium cursor-default
+                                ${isClean   ? 'bg-green-950/30 border-green-900/50 text-green-400'
+                                : isDrifted ? 'bg-red-950/30 border-red-900/50 text-red-400'
+                                : nb        ? 'bg-yellow-950/20 border-yellow-900/30 text-yellow-600'
+                                : 'bg-gray-800/40 border-gray-700/40 text-gray-600'}`}>
+                              {col.label}{isDrifted && ` · ${dc}`}
+                            </span>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+
+              {/* Right column: Exchange + SharePoint + Teams */}
+              <div className="space-y-2">
+                <div>
+                  <div className="text-xs text-amber-500/70 font-medium mb-1 uppercase tracking-wide">Exchange</div>
+                  <div className="flex flex-wrap gap-1">
+                    {AREA_COLS.filter(c => c.group === 'exchange').map(col => {
+                      const area = tenant.areas?.find(a => a.areaKey === col.key)
+                      const s  = area?.drift?.status
+                      const dc = area?.drift?.drift_count || 0
+                      const nb = area && !area.hasBaseline
+                      const isClean   = s === 'clean' || (s === 'drifted' && dc === 0)
+                      const isDrifted = s === 'drifted' && dc > 0
+                      return (
+                        <span key={col.key} title={col.tooltip}
+                          className={`text-xs px-2 py-0.5 rounded border font-medium cursor-default
+                            ${isClean   ? 'bg-green-950/30 border-green-900/50 text-green-400'
+                            : isDrifted ? 'bg-red-950/30 border-red-900/50 text-red-400'
+                            : nb        ? 'bg-yellow-950/20 border-yellow-900/30 text-yellow-600'
+                            : 'bg-gray-800/40 border-gray-700/40 text-gray-600'}`}>
+                          {col.label}{isDrifted && ` · ${dc}`}
+                        </span>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="text-xs text-sky-500/70 font-medium mb-1 uppercase tracking-wide">SharePoint</div>
+                  <div className="flex flex-wrap gap-1">
+                    {AREA_COLS.filter(c => c.group === 'sharepoint').map(col => {
+                      const area = tenant.areas?.find(a => a.areaKey === col.key)
+                      const s  = area?.drift?.status
+                      const dc = area?.drift?.drift_count || 0
+                      const nb = area && !area.hasBaseline
+                      const isClean   = s === 'clean' || (s === 'drifted' && dc === 0)
+                      const isDrifted = s === 'drifted' && dc > 0
+                      return (
+                        <span key={col.key} title={col.tooltip}
+                          className={`text-xs px-2 py-0.5 rounded border font-medium cursor-default
+                            ${isClean   ? 'bg-green-950/30 border-green-900/50 text-green-400'
+                            : isDrifted ? 'bg-red-950/30 border-red-900/50 text-red-400'
+                            : nb        ? 'bg-yellow-950/20 border-yellow-900/30 text-yellow-600'
+                            : 'bg-gray-800/40 border-gray-700/40 text-gray-600'}`}>
+                          {col.label}{isDrifted && ` · ${dc}`}
+                        </span>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="text-xs text-violet-500/70 font-medium mb-1 uppercase tracking-wide">Teams</div>
+                  <div className="flex flex-wrap gap-1">
+                    {AREA_COLS.filter(c => c.group === 'teams').map(col => {
+                      const area = tenant.areas?.find(a => a.areaKey === col.key)
+                      const s  = area?.drift?.status
+                      const dc = area?.drift?.drift_count || 0
+                      const nb = area && !area.hasBaseline
+                      const isClean   = s === 'clean' || (s === 'drifted' && dc === 0)
+                      const isDrifted = s === 'drifted' && dc > 0
+                      return (
+                        <span key={col.key} title={col.tooltip}
+                          className={`text-xs px-2 py-0.5 rounded border font-medium cursor-default
+                            ${isClean   ? 'bg-green-950/30 border-green-900/50 text-green-400'
+                            : isDrifted ? 'bg-red-950/30 border-red-900/50 text-red-400'
+                            : nb        ? 'bg-yellow-950/20 border-yellow-900/30 text-yellow-600'
+                            : 'bg-gray-800/40 border-gray-700/40 text-gray-600'}`}>
+                          {col.label}{isDrifted && ` · ${dc}`}
+                        </span>
+                      )
+                    })}
+                  </div>
                 </div>
               </div>
-              {/* Intune sub-groups */}
-              {[
-                { sg: 'policy',    label: 'Intune Policies' },
-                { sg: 'ep_sec',    label: 'Endpoint Security' },
-              ].map(({ sg, label }) => {
-                const cols = AREA_COLS.filter(c => c.subGroup === sg)
-                return (
-                  <div key={sg}>
-                    <div className="text-xs text-green-600/70 font-medium mb-1 uppercase tracking-wide">{label}</div>
-                    <div className="flex flex-wrap gap-1">
-                      {cols.map(col => {
-                        const area = tenant.areas?.find(a => a.areaKey === col.key)
-                        const s  = area?.drift?.status
-                        const dc = area?.drift?.drift_count || 0
-                        const nb = area && !area.hasBaseline
-                        const isClean   = s === 'clean' || (s === 'drifted' && dc === 0)
-                        const isDrifted = s === 'drifted' && dc > 0
-                        return (
-                          <span key={col.key} title={col.tooltip}
-                            className={`text-xs px-2 py-0.5 rounded border font-medium cursor-default
-                              ${isClean   ? 'bg-green-950/30 border-green-900/50 text-green-400'
-                              : isDrifted ? 'bg-red-950/30 border-red-900/50 text-red-400'
-                              : nb        ? 'bg-yellow-950/20 border-yellow-900/30 text-yellow-600'
-                              : 'bg-gray-800/40 border-gray-700/40 text-gray-600'}`}>
-                            {col.label}{isDrifted && ` · ${dc}`}
-                          </span>
-                        )
-                      })}
-                    </div>
-                  </div>
-                )
-              })}
             </div>
 
             {/* Telemetry */}
@@ -344,6 +439,9 @@ function MatrixView({ tenants, goToTenant }) {
   const entraCols   = AREA_COLS.filter(c => c.group === 'entra')
   const policyCols  = AREA_COLS.filter(c => c.subGroup === 'policy')
   const epSecCols   = AREA_COLS.filter(c => c.subGroup === 'ep_sec')
+  const exchangeCols = AREA_COLS.filter(c => c.group === 'exchange')
+  const sharepointCols = AREA_COLS.filter(c => c.group === 'sharepoint')
+  const teamsCols = AREA_COLS.filter(c => c.group === 'teams')
 
   // Helper: determine if a column is the first in its sub-group (gets a left separator)
   const isSubGroupStart = (col) => col.key === SUB_GROUP_META[col.subGroup]?.firstKey
@@ -366,6 +464,18 @@ function MatrixView({ tenants, goToTenant }) {
             <th colSpan={epSecCols.length}
               className="text-center px-2 py-1.5 text-xs font-semibold text-orange-400 border-b border-gray-800 border-l border-gray-700">
               Endpoint Security
+            </th>
+            <th colSpan={exchangeCols.length}
+              className="text-center px-2 py-1.5 text-xs font-semibold text-amber-500 border-b border-gray-800 border-l border-gray-700">
+              Exchange Online
+            </th>
+            <th colSpan={sharepointCols.length}
+              className="text-center px-2 py-1.5 text-xs font-semibold text-sky-400 border-b border-gray-800 border-l border-gray-700">
+              SharePoint
+            </th>
+            <th colSpan={teamsCols.length}
+              className="text-center px-2 py-1.5 text-xs font-semibold text-violet-400 border-b border-gray-800 border-l border-gray-700">
+              Teams
             </th>
             <th className="text-right px-3 py-2 text-xs font-medium text-gray-500 border-b border-gray-800 border-l border-gray-800/60">Coverage</th>
             <th className="text-right px-3 py-2 text-xs font-medium text-gray-500 border-b border-gray-800">Drifts</th>

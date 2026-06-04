@@ -22,4 +22,11 @@ function evictClient(tenantId, clientId) {
   clientCache.delete(`${tenantId}:${clientId}`);
 }
 
-module.exports = { getAccessToken, evictClient };
+function evictClientsByClientId(clientId) {
+  if (!clientId) return;
+  for (const key of clientCache.keys()) {
+    if (key.endsWith(`:${clientId}`)) clientCache.delete(key);
+  }
+}
+
+module.exports = { getAccessToken, evictClient, evictClientsByClientId };

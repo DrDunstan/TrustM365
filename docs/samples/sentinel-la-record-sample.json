@@ -1,0 +1,13 @@
+{
+  "eventTime": "2026-05-21T10:15:00.000Z",
+  "eventType": "drift.check.completed",
+  "eventCategory": "drift",
+  "schemaVersion": "1.0",
+  "sourcePlatform": "TrustM365",
+  "sourceVersion": "1.1.0",
+  "tenantDbId": "2be8a2cc-fb8f-4884-9f4b-d4c7618cb6ef",
+  "tenantId": "0f6eb64b-2d58-4d17-bfc6-4ce5a7ebcab2",
+  "areaKey": "entra_ca",
+  "status": "drifted",
+  "driftCount": 3
+}

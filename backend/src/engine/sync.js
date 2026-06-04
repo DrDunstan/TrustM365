@@ -1,15 +1,18 @@
 const { v4: uuidv4 } = require('uuid');
 const { getDb } = require('../database/init');
-const { getAccessToken } = require('../services/auth');
-const { decrypt } = require('../utils/encryption');
+const { getAccessToken, evictClient } = require('../services/auth');
+const { resolveTenantAuthContext } = require('../services/tenantAuth');
 const { getCollector, LicenceUnavailableError } = require('../collectors');
 const { computeDrift } = require('./drift');
 const { checkGrantedPermissions, buildAreaPermissionMap } = require('../services/permissions');
 const { COLLECTORS } = require('../collectors');
 const { fireWebhooksForDrift, clearWebhookFiredForArea } = require('./webhooks');
+const comparator = require('../referenceTemplates/comparator');
+const { persistPermissionState } = require('../services/permissionState');
 
 const logger = require('../utils/logger');
 const { nowInTimezone } = require('../utils/time');
+const { emitSiemEvent } = require('../services/logAnalytics');
 
 const jobs = new Map();
 
@@ -18,6 +21,7 @@ function getJob(jobId) { return jobs.get(jobId) || null; }
 function createSyncJob(tenantDbId, areaKey) {
   const jobId = uuidv4();
   jobs.set(jobId, { id: jobId, tenantDbId, areaKey, status: 'pending', result: null, error: null });
+  emitSiemEvent('jobs', 'sync.job.created', { jobId, tenantDbId, areaKey });
   return jobId;
 }
 
@@ -32,24 +36,55 @@ async function runSync(jobId) {
 
   try {
     const collector = getCollector(job.areaKey);
-    const clientSecret = decrypt(tenant.client_secret_encrypted);
-    const token = await getAccessToken(tenant.tenant_id, tenant.client_id, clientSecret);
+    const authCtx = resolveTenantAuthContext(tenant.id);
+    const token = await getAccessToken(authCtx.authorityTenantId, authCtx.clientId, authCtx.clientSecret);
 
     // ── Re-check permissions on every sync ────────────────────────────────────
 
     // Timezone logic removed — always use UTC timestamps
 
     try {
-      const { granted } = await checkGrantedPermissions(token, tenant.client_id, tenant.tenant_id);
+      const { granted } = await checkGrantedPermissions(token, authCtx.clientId, authCtx.authorityTenantId);
       const areas = buildAreaPermissionMap(granted, COLLECTORS);
-      db.prepare("UPDATE tenants SET permissions_json = ?, permissions_checked_at = ? WHERE id = ?")
-        .run(JSON.stringify({ granted, areas }), new Date().toISOString(), tenant.id);
+      persistPermissionState(tenant.id, granted, areas, new Date().toISOString());
       job.updatedPermissions = { granted, areas };
     } catch (permErr) {
       logger.warn({ permErr, tenantId: tenant.tenant_id }, 'Permission re-check failed during sync — using cached');
     }
 
-    const liveResources = await collector.pull(token);
+    // Attempt to pull live resources. If the tenant was recently granted new
+    // application permissions, the MSAL client may still return a cached token
+    // that doesn't include the new app roles. In that case a 403 from Graph
+    // should trigger evicting the cached MSAL client and retrying once to
+    // obtain a fresh token reflecting new admin consent.
+    let liveResources;
+    let retriedWithFreshToken = false;
+    try {
+      liveResources = await collector.pull(token);
+    } catch (pullErr) {
+      const isPermissionDenied = (pullErr && (pullErr.statusCode === 403 || String(pullErr.message || '').includes('Permission denied on')));
+      if (isPermissionDenied && !retriedWithFreshToken) {
+        // Evict cached MSAL client and request a fresh token
+        try {
+          evictClient(authCtx.authorityTenantId, authCtx.clientId);
+        } catch (e) { /* ignore eviction errors */ }
+        const freshToken = await getAccessToken(authCtx.authorityTenantId, authCtx.clientId, authCtx.clientSecret);
+        // Re-run permission discovery to persist updated permissions
+        try {
+          const { granted } = await checkGrantedPermissions(freshToken, authCtx.clientId, authCtx.authorityTenantId);
+          const areas = buildAreaPermissionMap(granted, COLLECTORS);
+          persistPermissionState(tenant.id, granted, areas, new Date().toISOString());
+          job.updatedPermissions = { granted, areas };
+        } catch (permErr2) {
+          logger.warn({ permErr2, tenantId: tenant.tenant_id }, 'Permission re-check failed after eviction — continuing to retry pull');
+        }
+        // Retry the pull with the fresh token
+        liveResources = await collector.pull(freshToken);
+        retriedWithFreshToken = true;
+      } else {
+        throw pullErr;
+      }
+    }
 
     const snapshotId = uuidv4();
     db.prepare('INSERT INTO live_snapshots (id, tenant_id, area_key, resources, pulled_at) VALUES (?,?,?,?,?)')
@@ -73,6 +108,14 @@ async function runSync(jobId) {
         .run(driftId, tenant.id, job.areaKey, drift.status, drift.driftCount, JSON.stringify(drift.summary), snapshotId);
       driftResult = drift;
       logger.info({ tenantId: tenant.tenant_id, areaKey: job.areaKey, status: drift.status, driftCount: drift.driftCount }, 'Drift check complete');
+      emitSiemEvent('drift', 'drift.check.completed', {
+        jobId,
+        tenantDbId: tenant.id,
+        tenantId: tenant.tenant_id,
+        areaKey: job.areaKey,
+        status: drift.status,
+        driftCount: drift.driftCount,
+      });
 
       // ── Fire webhooks for genuine drift ───────────────────────────────────
       if (drift.status === 'drifted' && drift.driftCount > 0) {
@@ -128,8 +171,26 @@ async function runSync(jobId) {
             job.result.liveResources = freshResources;
             driftResult = { ...freshDrift, autoRestoreResult };
             logger.info({ areaKey: job.areaKey, status: freshDrift.status }, 'Post-restore drift check complete');
+            emitSiemEvent('drift', 'drift.post_restore.completed', {
+              jobId,
+              tenantDbId: tenant.id,
+              tenantId: tenant.tenant_id,
+              areaKey: job.areaKey,
+              status: freshDrift.status,
+              driftCount: freshDrift.driftCount,
+              autoRestoreAttempted: autoRestoreResult.attempted,
+              autoRestoreSucceeded: autoRestoreResult.succeeded,
+              autoRestoreFailed: autoRestoreResult.failed,
+            });
           } catch (rePullErr) {
             logger.warn({ rePullErr }, 'Post-restore re-pull failed — UI will show stale drift until next sync');
+            emitSiemEvent('jobs', 'sync.post_restore_repull.failed', {
+              jobId,
+              tenantDbId: tenant.id,
+              tenantId: tenant.tenant_id,
+              areaKey: job.areaKey,
+              error: rePullErr.message,
+            });
           }
         }
       }
@@ -140,6 +201,13 @@ async function runSync(jobId) {
     // Clear any previous sync error on success
       db.prepare("UPDATE tenants SET last_sync_error = NULL, last_sync_error_at = NULL WHERE id = ?")
         .run(tenant.id);
+    emitSiemEvent('jobs', 'sync.job.completed', {
+      jobId,
+      tenantDbId: tenant.id,
+      tenantId: tenant.tenant_id,
+      areaKey: job.areaKey,
+      status: 'complete',
+    });
 
   } catch (err) {
     if (err instanceof LicenceUnavailableError || err.code === 'LICENCE_UNAVAILABLE') {
@@ -148,6 +216,13 @@ async function runSync(jobId) {
       job.status = 'unavailable';
       job.error = err.message;
       logger.info({ areaKey: job.areaKey, tenantId: tenant.tenant_id }, 'Area unavailable on this licence tier');
+      emitSiemEvent('jobs', 'sync.job.unavailable', {
+        jobId,
+        tenantDbId: tenant.id,
+        tenantId: tenant.tenant_id,
+        areaKey: job.areaKey,
+        error: err.message,
+      });
     } else {
       // Classify the error type for the UI banner.
       // Only persist errors that indicate the ENTIRE tenant connection is broken
@@ -179,6 +254,14 @@ async function runSync(jobId) {
       job.status = 'failed';
       job.error = err.message;
       logger.error({ err, areaKey: job.areaKey, errorType }, 'Sync job failed');
+      emitSiemEvent('jobs', 'sync.job.failed', {
+        jobId,
+        tenantDbId: tenant.id,
+        tenantId: tenant.tenant_id,
+        areaKey: job.areaKey,
+        errorType,
+        error: err.message,
+      });
     }
   }
 }
@@ -193,6 +276,17 @@ async function runSync(jobId) {
  */
 async function runAllDriftChecks() {
   const db = getDb();
+  // Respect per-area rate limits for expensive Graph endpoints (Teams, SharePoint)
+  // Some Graph resources (notably Teams and SharePoint) impose polling guidance
+  // of no more than once per day. To avoid violating the Microsoft Graph
+  // polling guidance, scheduled automated checks will skip these areas if
+  // they were pulled within the last 24 hours.
+  const MIN_POLL_MS = 24 * 60 * 60 * 1000; // 24 hours in ms
+
+  function isRateLimitedArea(areaKey) {
+    return !!areaKey && (areaKey.startsWith('teams_') || areaKey === 'sharepoint_sites');
+  }
+
   // Get all tenants that have at least one baselined area
   const tenants = db.prepare(`
     SELECT DISTINCT t.*
@@ -219,6 +313,19 @@ async function runAllDriftChecks() {
 
     const areas = db.prepare('SELECT * FROM resource_areas WHERE tenant_id = ? AND has_baseline = 1').all(tenant.id);
     for (const area of areas) {
+      // If this area is rate-limited (Teams/SharePoint), skip automated pulls
+      // when it was already pulled within the last 24 hours. Manual pulls
+      // initiated via the API are still allowed.
+      if (isRateLimitedArea(area.area_key)) {
+        const lastPulled = area.last_pulled_at ? Date.parse(area.last_pulled_at) : null;
+        if (lastPulled && (Date.now() - lastPulled) < MIN_POLL_MS) {
+          logger.info({ tenantId: tenant.tenant_id, areaKey: area.area_key, lastPulledAt: area.last_pulled_at },
+            'Skipping scheduled pull — Teams/SharePoint polling limited to once per 24 hours to comply with Microsoft Graph API polling guidance.'
+          );
+          continue;
+        }
+      }
+
       const jobId = createSyncJob(area.tenant_id, area.area_key);
       await runSync(jobId);
     }
@@ -226,3 +333,91 @@ async function runAllDriftChecks() {
 }
 
 module.exports = { createSyncJob, runSync, getJob, runAllDriftChecks };
+
+// -------------------- Compare-job (async bulk compare) --------------------
+
+function createCompareJob(template, tenantDbIds) {
+  const jobId = uuidv4();
+  jobs.set(jobId, {
+    id: jobId,
+    type: 'compare',
+    templateId: (template && template.id) || null,
+    template: template || null,
+    tenantDbIds: Array.isArray(tenantDbIds) ? tenantDbIds.slice() : [],
+    status: 'pending',
+    createdAt: new Date().toISOString(),
+    startedAt: null,
+    completedAt: null,
+    results: []
+  });
+  emitSiemEvent('jobs', 'compare.job.created', {
+    jobId,
+    templateId: (template && template.id) || null,
+    tenantCount: Array.isArray(tenantDbIds) ? tenantDbIds.length : 0,
+  });
+  return jobId;
+}
+
+async function runCompareJob(jobId) {
+  const job = jobs.get(jobId);
+  if (!job) return;
+  job.status = 'running';
+  job.startedAt = new Date().toISOString();
+  const db = getDb();
+
+  for (const tid of (job.tenantDbIds || [])) {
+    const out = { tenantId: tid };
+    try {
+      const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tid);
+      if (!tenant) { out.error = 'Tenant not found'; job.results.push(out); continue; }
+
+      // Acquire token for this tenant
+      let token = null;
+      try {
+        const authCtx = resolveTenantAuthContext(tenant.id);
+        token = await getAccessToken(authCtx.authorityTenantId, authCtx.clientId, authCtx.clientSecret);
+      } catch (err) {
+        out.error = 'Failed to acquire token'; out.message = err && err.message; job.results.push(out); continue;
+      }
+
+      const areaKey = (job.template && (job.template.area_key || job.template.areaKey)) || 'unknown';
+      let liveResources = {};
+      try {
+        const collector = getCollector(areaKey);
+        if (!collector) { out.error = 'Collector not available for area'; job.results.push(out); continue; }
+        liveResources = await collector.pull(token);
+      } catch (err) {
+        out.error = 'Collector pull failed'; out.message = err && err.message; job.results.push(out); continue;
+      }
+
+      try {
+        const items = await comparator.compareTemplateResources(job.template, liveResources) || [];
+        const total = items.length;
+        const matched = items.filter(i => i.status === 'matched').length;
+        const partial = items.filter(i => i.status === 'partial').length;
+        const noMatch = Math.max(0, total - matched - partial);
+        out.summary = { total, matched, partial, noMatch };
+        out.items = items;
+      } catch (err) {
+        out.error = 'Comparator failed'; out.message = err && err.message;
+      }
+    } catch (err) {
+      out.error = 'Unexpected error'; out.message = err && err.message;
+    }
+    job.results.push(out);
+  }
+
+  job.status = 'complete';
+  job.completedAt = new Date().toISOString();
+  job.result = { results: job.results };
+  emitSiemEvent('jobs', 'compare.job.completed', {
+    jobId,
+    templateId: job.templateId,
+    tenantCount: Array.isArray(job.tenantDbIds) ? job.tenantDbIds.length : 0,
+    resultCount: Array.isArray(job.results) ? job.results.length : 0,
+  });
+}
+
+module.exports.createCompareJob = createCompareJob;
+module.exports.runCompareJob = runCompareJob;
+
